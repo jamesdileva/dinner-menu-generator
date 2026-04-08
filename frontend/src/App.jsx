@@ -43,16 +43,48 @@ async function editMeal(meal) {
   const newName = prompt("New name:", meal.name);
   if (!newName) return;
 
+  const newIngredients = prompt(
+    "Ingredients (comma separated):",
+    meal.ingredients.join(", ")
+  );
+
+  if (!newIngredients) return;
+
   await fetch(`http://localhost:5000/meal/${meal.id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       name: newName,
-      ingredients: meal.ingredients
+      ingredients: newIngredients.split(",").map(i => i.trim())
     })
   });
 
   loadMeals();
+}
+
+async function uploadImage(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const res = await fetch("http://localhost:5000/upload-menu", {
+    method: "POST",
+    body: formData
+  });
+
+  const data = await res.json();
+
+  console.log(data);
+
+  alert(
+    `Added: ${data.added.length}
+  Updated: ${data.updated.length}
+  Skipped: ${data.skipped.length}`
+  );
+
+  loadMeals(); // 🔥 refresh UI
 }
 
 async function deleteMeal(id) {
@@ -60,29 +92,36 @@ async function deleteMeal(id) {
     method: "DELETE"
   });
 
-  loadMeals(); // refresh list
+  loadMeals(); // ✅ refresh UI
 }
 
   async function addMeal() {
-    await fetch("http://localhost:5000/meal", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        name,
-        ingredients: ingredients.split(",").map(i => i.trim())
-      })
-    });
+  const res = await fetch("http://localhost:5000/meal", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      name,
+      ingredients: ingredients.split(",").map(i => i.trim())
+    })
+  });
 
-    setName("");
-    setIngredients("");
+  const data = await res.json();
+
+  if (data.error) {
+    alert(data.error);
+    return;
   }
 
-    useEffect(() => {
-    loadMeals();
-  }, []);
+  setName("");
+  setIngredients("");
 
+  loadMeals(); // ✅ THIS FIXES IT
+}
+useEffect(() => {
+  loadMeals();
+}, []);
   return (
     <div style={{ padding: "1rem" }}>
       <h1>Dinner Planner</h1>
@@ -114,23 +153,33 @@ async function deleteMeal(id) {
       />
 
       <button onClick={addMeal}>Add Meal</button>
-
+      <input type="file" onChange={uploadImage} />  
       <hr />
       <h2>Weekly Menu</h2>
       <button onClick={loadMenu}>Generate Weekly Menu</button>
       <button onClick={loadGrocery}>Generate Grocery List</button>
+      
+      
       {grocery && (
   <>
-      <h2>Grocery List</h2>
-      <ul>
-        {Object.entries(grocery).map(([item, qty]) => (
-          <li key={item}>
-            {item}: {qty}
-          </li>
-        ))}
-      </ul>
-    </>
-  )}
+          <h2>Grocery List</h2>
+
+          {Object.entries(grocery).map(([category, items]) => (
+            <div key={category}>
+              <h3>{category}</h3>
+              <ul>
+                {items.map((i) => (
+                  <li key={i.item}>
+                    {i.item}: {i.qty}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </>
+      )}
+
+      
       {menu && (
         <ul>
           {Object.entries(menu).map(([day, meal]) => (

@@ -1,0 +1,40 @@
+# 🔐 ENV (NEVER COMMIT SECRETS)
+.env
+.env.*
+*.env
+
+# 🐍 Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+
+# Flask
+instance/
+.webassets-cache
+
+# 🐘 PostgreSQL (if any local dumps)
+*.sql
+
+# 📦 Node / React
+node_modules/
+dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# VS Code / IDE
+.vscode/
+.idea/
+
+# Mac / Linux temp
+*.swp

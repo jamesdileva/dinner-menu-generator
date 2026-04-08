@@ -1,7 +1,15 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
+from openai import OpenAI
 import random
+from PIL import Image
+import pytesseract
+import json
+
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+
 global current_week
 current_week = []
 app = Flask(__name__)
@@ -31,6 +39,64 @@ class WeeklyMenu(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     meals = db.Column(db.JSON)       
 
+def generate_ingredients(meal_name):
+    name = meal_name.lower()
+
+    if "taco" in name:
+        return ["beef", "tortilla", "cheese"]
+    if "pizza" in name:
+        return ["dough", "cheese", "tomato sauce"]
+    if "alfredo" in name:
+        return ["chicken", "pasta", "cream"]
+    if "salad" in name:
+        return ["lettuce", "tomato", "dressing"]
+    if "burger" in name:
+        return ["beef", "bun", "lettuce"]
+    if "rice" in name:
+        return ["rice", "soy sauce", "egg"]
+    if "shrimp" in name:
+        return ["shrimp", "garlic", "butter"]
+
+    # fallback
+    return ["ingredient1", "ingredient2"]
+
+def categorize_ingredient(item):
+    item = item.lower()
+
+    if item in ["chicken", "beef", "pork", "shrimp", "egg"]:
+        return "Protein"
+    if item in ["lettuce", "tomato", "onion", "garlic"]:
+        return "Produce"
+    if item in ["milk", "cheese", "butter", "cream"]:
+        return "Dairy"
+    if item in ["rice", "pasta", "bread", "bun", "tortilla"]:
+        return "Grains"
+    
+    return "Other"
+
+import json
+
+def enhance_grocery_list(grocery):
+    prompt = f"""
+    Convert this grocery list into realistic shopping quantities.
+
+    Return ONLY valid JSON in this format:
+    {{
+      "Protein": [{{"item": "...", "qty": "..."}}, ...]
+    }}
+
+    Data:
+    {grocery}
+    """
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    return jsonify(json.loads(response.choices[0].message.content))
+
+
 # ✅ ROUTES
 @app.route("/")
 def home():
@@ -41,9 +107,83 @@ def init_db():
     db.create_all()
     return "DB initialized"
 
+@app.route("/upload-menu", methods=["POST"])
+def upload_menu():
+    try:
+        file = request.files["image"]
+        image = Image.open(file)
+
+        text = pytesseract.image_to_string(image)
+
+        lines = [line.strip() for line in text.split("\n") if line.strip()]
+
+        cleaned_meals = []
+
+        for line in lines:
+            # ❌ Remove junk
+            if len(line) < 3:
+                continue
+            if "weekly" in line.lower():
+                continue
+
+            # ✅ Fix common OCR issues
+            line = line.replace("e ", "")  # removes "e Chicken"
+            line = line.replace(" - ", "-")
+            line = line.strip()
+
+            cleaned_meals.append(line)
+
+        added = []
+        skipped = []
+        updated = []
+        for meal_name in cleaned_meals:
+            name_lower = meal_name.lower()
+
+            existing = Meal.query.filter(
+                db.func.lower(Meal.name) == name_lower
+            ).first()
+
+            if existing:
+                # 🔥 NEW LOGIC: fill missing ingredients
+                if not existing.ingredients or len(existing.ingredients) == 0:
+                    existing.ingredients = generate_ingredients(meal_name)
+                    updated.append(meal_name)
+                else:
+                    skipped.append(meal_name)
+                continue
+
+            meal = Meal(
+                name=meal_name,
+                ingredients=generate_ingredients(meal_name)  # we’ll upgrade this later
+            )
+
+            db.session.add(meal)
+            added.append(meal_name)
+
+        db.session.commit()
+
+        return jsonify({
+            "added": added,
+            "updated": updated,
+            "skipped": skipped
+        })
+
+    except Exception as e:
+        print("ERROR:", e)
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/meal", methods=["POST"])
 def add_meal():
     data = request.json
+    name = data["name"].strip().lower()
+
+    # ✅ Check for duplicate
+    existing = Meal.query.filter(
+        db.func.lower(Meal.name) == name
+    ).first()
+
+    if existing:
+        return jsonify({"error": "Meal already exists"}), 400
 
     meal = Meal(
         name=data["name"],
@@ -57,7 +197,7 @@ def add_meal():
 
 @app.route("/meal/<int:id>", methods=["PUT"])
 def update_meal(id):
-    meal = Meal.query.get(id)
+    meal = db.session.get(Meal, id)
 
     if not meal:
         return jsonify({"error": "Meal not found"}), 404
@@ -71,9 +211,11 @@ def update_meal(id):
 
     return jsonify({"success": True})
 
+    
+
 @app.route("/meal/<int:id>", methods=["DELETE"])
 def delete_meal(id):
-    meal = Meal.query.get(id)
+    meal = db.session.get(Meal, id)
 
     if not meal:
         return jsonify({"error": "Meal not found"}), 404
@@ -137,11 +279,32 @@ def grocery():
 
     grocery = {}
 
+    # 🔹 Count ingredients
     for day, meal in last_menu.meals.items():
         for item in meal["ingredients"]:
             grocery[item] = grocery.get(item, 0) + 1
 
-    return jsonify(grocery)
+    # 🔹 Group ingredients
+    grouped = {}
+
+    for item, qty in grocery.items():
+        category = categorize_ingredient(item)
+
+        if category not in grouped:
+            grouped[category] = []
+
+        grouped[category].append({
+            "item": item,
+            "qty": qty
+        })
+
+    # 🔥 AI enhancement (AFTER grouping is complete)
+    try:
+        ai_result = enhance_grocery_list(grouped)
+        return ai_result  # optional: may return string
+    except Exception as e:
+        print("AI ERROR:", e)
+        return jsonify(grouped)  # fallback
     
 
 if __name__ == "__main__":
