@@ -17,6 +17,10 @@ instance/
 # 🐘 PostgreSQL (if any local dumps)
 *.sql
 
+#nodes
+node_modules/
+backend/node_modules/
+
 # 📦 Node / React
 node_modules/
 dist/
