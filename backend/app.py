@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from openai import OpenAI
 import random
 from PIL import Image
 import pytesseract
@@ -60,52 +59,310 @@ def generate_ingredients(meal_name):
     # fallback
     return ["ingredient1", "ingredient2"]
 
+def merge_ingredient(name):
+    return INGREDIENT_MAP.get(name, name)  
+
+IGNORE_WORDS = [
+    "mix",
+    "premade",
+    "or",
+    "white",
+    "sub",
+    "sandwich"
+]
+IGNORE_WORDS.append("sauce")
+IGNORE_WORDS.extend([
+    "and"
+])
+KEEP_TOGETHER = [
+    "pancake mix",
+    "tomato sauce",
+    "soy sauce",
+    "hot sauce",
+    "bbq sauce",
+    "premade lasagna",
+    "lasagna",
+    "rice pilaf",
+    "angel hair pasta",
+    "ground beef",
+    "tri tip",
+    "pork chop",
+    "white rice",
+]
+
+INGREDIENT_MAP = {
+    "chicken breast": "chicken",
+    "chicken thigh": "chicken",
+    "ground beef": "beef",
+    "steak": "beef",
+    "shredded cheese": "cheese",
+    "mozzarella cheese": "cheese",
+    "white rice": "rice",
+    "brown rice": "rice",
+    "tri tip": "beef",
+    "tri": "beef",
+    "tip": "beef",
+    "angelhair": "pasta",
+    "noodle": "pasta"
+}
+INGREDIENT_MAP.update({
+    "potatoe": "potato",
+    "veggie": "vegetable",
+    "meat": "beef",
+    "roast": "pork",
+    "stew": "beef stew",
+    "green": "green chili",
+    "chili": "green chili",
+    "pancake": "pancake mix",
+    "angel hair pasta": "pasta"
+})
+KEEP_TOGETHER.extend([
+    "green chili",
+    "chicken burritos",
+    "pork roast",
+    "beef tacos",
+    "veggie stir fry",
+    "angel hair pasta"
+    "pancake mix",
+    "beef stew"
+])
+def clean_meal_name(name):
+    if not name:
+        return name
+
+    name = name.strip()
+
+    # remove extra spaces
+    name = " ".join(name.split())
+
+    # fix casing (Title Case)
+    name = name.title()
+
+    # quick typo fixes (you can expand this later)
+    fixes = {
+        "Lasagnaa": "Lasagna",
+        "Taco Boowl": "Taco Bowl",
+        "Veggistir- Fry": "Veggie Stir Fry"
+    }
+
+    return fixes.get(name, name)
+
+def normalize_ingredients(ingredients):
+    result = []
+
+    if isinstance(ingredients, list):
+        items = ingredients
+    else:
+        items = [ingredients]
+
+    for item in items:
+        if not item:
+            continue
+
+        item = item.lower().strip()
+
+        # 🔥 check protected phrases FIRST
+        normalized_item = " ".join(item.lower().split())
+
+        matched = False
+        for phrase in KEEP_TOGETHER:
+            if phrase in normalized_item:
+                result.append(phrase)
+                matched = True
+                break
+
+        if matched:
+            continue
+
+        # normal splitting
+        parts = item.split(",")
+
+        for part in parts:
+            sub_parts = part.split(" ")
+
+            for p in sub_parts:
+                cleaned = p.strip()
+
+                if not cleaned:
+                    continue
+
+                if cleaned.startswith("ingredient"):
+                    continue
+
+                if len(cleaned) < 2:
+                    continue
+
+                # ignore junk words EARLY
+                if cleaned in IGNORE_WORDS:
+                    continue
+
+                # singular fix
+                if cleaned.endswith("s") and len(cleaned) > 3:
+                    cleaned = cleaned[:-1]
+
+                # merge AFTER normalization
+                cleaned = merge_ingredient(cleaned)
+
+                result.append(cleaned)
+
+    return result
+
 def categorize_ingredient(item):
     item = item.lower()
 
-    if item in ["chicken", "beef", "pork", "shrimp", "egg"]:
+    if item in [
+        "chicken",
+        "beef",
+        "pork",
+        "egg",
+        "shrimp",
+        "sausage",
+        "bacon",
+        "meatball",
+        "carne",
+        "hamburger",
+        "steak"
+        "ground beef", 
+        "beef stew"   
+    ]:
         return "Protein"
-    if item in ["lettuce", "tomato", "onion", "garlic"]:
+        
+    if item in ["lettuce", "tomato", "onion", "garlic", "pepper","potato","vegetable"]:
         return "Produce"
+
     if item in ["milk", "cheese", "butter", "cream"]:
         return "Dairy"
-    if item in ["rice", "pasta", "bread", "bun", "tortilla"]:
+
+    if item in ["rice", "pasta", "bread", "bun", "tortilla", "pilaf"]:
         return "Grains"
-    
+
     return "Other"
 
-import json
+fast_food_spots = [
+    {"name": "McDonald's", "type": "Fast Food"},
+    {"name": "Chipotle", "type": "Mexican"},
+    {"name": "Pizza Hut", "type": "Pizza"},
+    {"name": "Subway", "type": "Sandwiches"},
+    {"name": "Chick-fil-A", "type": "Chicken"}
+]
 
-def enhance_grocery_list(grocery):
-    prompt = f"""
-    Convert this grocery list into realistic shopping quantities.
-
-    Return ONLY valid JSON in this format:
-    {{
-      "Protein": [{{"item": "...", "qty": "..."}}, ...]
-    }}
-
-    Data:
-    {grocery}
-    """
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    return jsonify(json.loads(response.choices[0].message.content))
-
+def normalize_name(name):
+    return name.strip().lower()
 
 # ✅ ROUTES
 @app.route("/")
 def home():
     return "API running"
-    
+
+@app.route("/fix-data")
+def fix_data():
+    meals = Meal.query.all()
+
+    seen_names = set()
+
+    for meal in meals:
+        # ✅ fix ingredients
+        meal.ingredients = normalize_ingredients(meal.ingredients)
+
+        # ✅ fix name
+        cleaned_name = clean_meal_name(meal.name)
+
+        # ✅ prevent duplicates after cleaning
+        normalized = cleaned_name.lower()
+
+        if normalized in seen_names:
+            # optional: delete duplicate
+            db.session.delete(meal)
+            continue
+
+        seen_names.add(normalized)
+        meal.name = cleaned_name
+
+    db.session.commit()
+
+    return "Data fully cleaned!"
+
 @app.route("/init-db")
 def init_db():
     db.create_all()
     return "DB initialized"
+import random
+
+used_today = set()  # simple in-memory (can upgrade later)
+
+import random
+
+used_today = set()  # avoid repeats
+
+@app.route("/menu/takeout", methods=["GET"])
+def takeout():
+    import random
+    return jsonify(random.choice(fast_food_spots))
+
+@app.route("/menu/decide", methods=["GET"])
+def decide():
+    import random
+
+    choice = random.choice(["home", "takeout"])
+
+    if choice == "home":
+        meals = Meal.query.all()
+        meal = random.choice(meals)
+        return jsonify({"mode": "home", "meal": meal.to_dict()})
+
+    else:
+        return jsonify({"mode": "takeout", "meal": random.choice(fast_food_spots)})    
+
+@app.route("/menu/today", methods=["GET"])
+def meal_today():
+    global used_today
+
+    meals = Meal.query.all()
+
+    if not meals:
+        return jsonify({"error": "No meals available"}), 400
+
+    # filter unused meals
+    available = [m for m in meals if m.name not in used_today]
+
+    # reset if we've used all meals
+    if not available:
+        used_today.clear()
+        available = meals
+
+    meal = random.choice(available)
+
+    used_today.add(meal.name)
+
+    return jsonify(meal.to_dict())
+
+@app.route("/menu/reroll/<day>", methods=["POST"])
+def reroll_day(day):
+    last_menu = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).first()
+
+    if not last_menu:
+        return jsonify({"error": "Generate a menu first"}), 400
+
+    meals = Meal.query.all()
+
+    if len(meals) < 1:
+        return jsonify({"error": "No meals available"}), 400
+
+    # avoid current meal for that day
+    current_meal_name = last_menu.meals[day]["name"]
+
+    available = [m for m in meals if m.name != current_meal_name]
+
+    import random
+    new_meal = random.choice(available)
+
+    last_menu.meals[day] = new_meal.to_dict()
+    db.session.commit()
+
+    return jsonify({
+        "day": day,
+        "meal": new_meal.to_dict()
+    })    
 
 @app.route("/upload-menu", methods=["POST"])
 def upload_menu():
@@ -131,7 +388,10 @@ def upload_menu():
             line = line.replace(" - ", "-")
             line = line.strip()
 
-            cleaned_meals.append(line)
+            cleaned = clean_meal_name(meal_name)
+
+            if not cleaned:
+                continue
 
         added = []
         skipped = []
@@ -175,19 +435,27 @@ def upload_menu():
 @app.route("/meal", methods=["POST"])
 def add_meal():
     data = request.json
-    name = data["name"].strip().lower()
 
-    # ✅ Check for duplicate
+    # ✅ define FIRST
+    raw_name = data["name"]
+    name = raw_name.strip()
+    normalized = raw_name.strip().lower()
+
+    # ✅ check duplicate
     existing = Meal.query.filter(
-        db.func.lower(Meal.name) == name
+        db.func.lower(Meal.name) == normalized
     ).first()
 
     if existing:
         return jsonify({"error": "Meal already exists"}), 400
 
+    # ✅ normalize ingredients
+    ingredients = normalize_ingredients(data.get("ingredients", []))
+
+    # ✅ create meal
     meal = Meal(
-        name=data["name"],
-        ingredients=data.get("ingredients", [])
+        name=name,
+        ingredients=ingredients
     )
 
     db.session.add(meal)
@@ -227,7 +495,7 @@ def delete_meal(id):
 
 @app.route("/meals", methods=["GET"])
 def get_meals():
-    meals = Meal.query.all()
+    meals = Meal.query.order_by(Meal.name.asc()).all()
     return jsonify([m.to_dict() for m in meals])
 
 @app.route("/menu/week", methods=["GET"])
@@ -279,12 +547,10 @@ def grocery():
 
     grocery = {}
 
-    # 🔹 Count ingredients
     for day, meal in last_menu.meals.items():
         for item in meal["ingredients"]:
             grocery[item] = grocery.get(item, 0) + 1
 
-    # 🔹 Group ingredients
     grouped = {}
 
     for item, qty in grocery.items():
@@ -297,6 +563,8 @@ def grocery():
             "item": item,
             "qty": qty
         })
+
+    return jsonify(grouped)
 
     # 🔥 AI enhancement (AFTER grouping is complete)
     try:

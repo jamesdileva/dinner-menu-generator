@@ -7,7 +7,14 @@ export default function App() {
   const [ingredients, setIngredients] = useState("");
   const [grocery, setGrocery] = useState(null);
   const [meals, setMeals] = useState([]);
+  const [today, setToday] = useState(null);
+  const [takeout, setTakeout] = useState(null);
 
+  async function getTodayMeal() {
+    const res = await fetch("http://localhost:5000/menu/today");
+    const data = await res.json();
+    setToday(data);
+  }
   async function loadMenu() {
     const res = await fetch("http://localhost:5000/menu/week");
     const data = await res.json();
@@ -37,6 +44,25 @@ async function loadGrocery() {
   }
 
   setGrocery(data);
+}
+
+async function getTakeout() {
+  const res = await fetch("http://localhost:5000/menu/takeout");
+  const data = await res.json();
+  setTakeout(data);
+}
+
+async function rerollDay(day) {
+  const res = await fetch(`http://localhost:5000/menu/reroll/${day}`, {
+    method: "POST"
+  });
+
+  const data = await res.json();
+
+  setMenu(prev => ({
+    ...prev,
+    [day]: data.meal
+  }));
 }
 
 async function editMeal(meal) {
@@ -126,7 +152,7 @@ useEffect(() => {
     <div style={{ padding: "1rem" }}>
       <h1>Dinner Planner</h1>
 
-      <h2>Add Meal</h2>
+
 
       <h2>All Meals</h2>
 
@@ -139,6 +165,7 @@ useEffect(() => {
           </li>
         ))}
       </ul>
+      
 
       <input
         placeholder="Meal name"
@@ -151,15 +178,39 @@ useEffect(() => {
         value={ingredients}
         onChange={(e) => setIngredients(e.target.value)}
       />
-
+            <h2>Add Meal</h2>
       <button onClick={addMeal}>Add Meal</button>
       <input type="file" onChange={uploadImage} />  
       <hr />
-      <h2>Weekly Menu</h2>
-      <button onClick={loadMenu}>Generate Weekly Menu</button>
+    
+        <hr />
+
+      <h2>Quick Pick</h2>
+
+      <button onClick={getTodayMeal}>
+        🍽 What should I eat tonight?
+      </button>
+
+      <button onClick={getTakeout}>
+        🍔 Or just eat out
+      </button>
+
+      {today && (
+        <div>
+          <h3>Eat at Home:</h3>
+          <h2>{today.name}</h2>
+        </div>
+      )}
+
+      {takeout && (
+        <div>
+          <h3>Eat Out:</h3>
+          <h2>{takeout.name}</h2>
+          <p>{takeout.type}</p>
+        </div>
+      )}
+
       <button onClick={loadGrocery}>Generate Grocery List</button>
-      
-      
       {grocery && (
   <>
           <h2>Grocery List</h2>
@@ -179,12 +230,14 @@ useEffect(() => {
         </>
       )}
 
-      
+      <h2>Weekly Menu</h2>
+      <button onClick={loadMenu}>Generate Weekly Menu</button>
       {menu && (
         <ul>
           {Object.entries(menu).map(([day, meal]) => (
             <li key={day}>
               {day}: {meal.name}
+              <button onClick={() => rerollDay(day)}>🔄</button>
             </li>
           ))}
         </ul>
