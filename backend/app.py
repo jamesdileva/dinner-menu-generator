@@ -10,22 +10,38 @@ import numpy as np
 import os
 import webbrowser
 import threading
+import sys
+import requests
 
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
+
+
+
+if hasattr(sys, "_MEIPASS"):
+    # EXE
+    FRONTEND_BUILD = os.path.join(sys._MEIPASS, "frontend/dist")
+else:
+    # LOCAL RUN
+    FRONTEND_BUILD = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "../frontend/dist")
+    )
+
+FRONTEND_BUILD = r"C:\Users\j\dinner-menu-generator\frontend\dist"
+pytesseract.pytesseract.tesseract_cmd = "tesseract"
 
 global current_week
 current_week = []
 app = Flask(__name__)
 CORS(app)
 
-app.config["SQLALCHEMY_DATABASE_URI"] = "postgresql://postgres:123@127.0.0.1:5432/dinner_app"
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///dinner.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-
+print("🚀 RUNNING THIS FILE")
 
 db = SQLAlchemy(app)
 
+# ✅ MODEL FIRST
 # ✅ MODEL FIRST
 class Meal(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -38,6 +54,7 @@ class Meal(db.Model):
             "name": self.name,
             "ingredients": self.ingredients
         }
+
 
 class WeeklyMenu(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -347,16 +364,22 @@ fast_food_spots = [
 def normalize_name(name):
     return name.strip().lower()
 
-
-FRONTEND_BUILD = os.path.join(os.getcwd(), "frontend/dist")
+print("FRONTEND_BUILD:", FRONTEND_BUILD)
+print("FILES:", os.listdir(FRONTEND_BUILD) if os.path.exists(FRONTEND_BUILD) else "MISSING")
 
 @app.route("/")
 def serve():
+    index_path = os.path.join(FRONTEND_BUILD, "index.html")
+    print("TRYING:", index_path)
+
+    if not os.path.exists(index_path):
+        return f"Missing index.html at {index_path}", 500
+
     return send_from_directory(FRONTEND_BUILD, "index.html")
 
-@app.route("/<path:path>")
-def static_proxy(path):
-    return send_from_directory(FRONTEND_BUILD, path) 
+@app.route("/assets/<path:filename>")
+def assets(filename):
+    return send_from_directory(os.path.join(FRONTEND_BUILD, "assets"), filename)
 
 @app.route("/fix-data")
 def fix_data():
@@ -700,9 +723,19 @@ def grocery():
         print("AI ERROR:", e)
         return jsonify(grouped)  # fallback
     
+    # ✅ AFTER app + routes are defined (or temporarily here)
+    print("📍 ROUTES REGISTERED:")
+    for rule in app.url_map.iter_rules():
+        print(rule)
+
 def open_browser():
     webbrowser.open("http://127.0.0.1:5000")
 
+    
+
 if __name__ == "__main__":
+    with app.app_context():
+        db.create_all()
     threading.Timer(1.5, open_browser).start()
     app.run(debug=False)
+    

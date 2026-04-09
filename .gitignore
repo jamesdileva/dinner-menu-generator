@@ -16,6 +16,9 @@ instance/
 
 # 🐘 PostgreSQL (if any local dumps)
 *.sql
+*.db
+backend/dist/
+frontend/dist/
 
 #nodes
 node_modules/

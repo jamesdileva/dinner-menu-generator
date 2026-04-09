@@ -1,3 +1,11 @@
+# =========================
+# FRONTEND (Vite / Node)
+# =========================
+node_modules
+dist
+dist-ssr
+*.local
+
 # Logs
 logs
 *.log
@@ -7,16 +15,36 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# =========================
+# PYTHON
+# =========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+*.db
 
-# Editor directories and files
+# Virtual environments
+venv/
+.env/
+
+# =========================
+# PYINSTALLER
+# =========================
+build/
+dist/
+*.spec
+
+# =========================
+# OS / EDITOR
+# =========================
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
+Thumbs.db
+
 *.suo
 *.ntvs*
 *.njsproj
