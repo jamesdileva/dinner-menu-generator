@@ -1,10 +1,15 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 import random
 from PIL import Image
 import pytesseract
 import json
+import cv2
+import numpy as np
+import os
+import webbrowser
+import threading
 
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
@@ -36,28 +41,99 @@ class Meal(db.Model):
 
 class WeeklyMenu(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    meals = db.Column(db.JSON)       
+    meals = db.Column(db.JSON)      
+
+def is_valid_meal(text):
+    text = text.strip()
+
+    if not text:
+        return False
+
+    lower = text.lower()
+
+    # ❌ length guard
+    if len(text) < 3 or len(text) > 35:
+        return False
+
+    # ❌ must contain letters
+    if not any(c.isalpha() for c in text):
+        return False
+
+    words = lower.split()
+
+    # ❌ too many words = paragraph junk
+    if len(words) > 5:
+        return False
+
+    # ❌ reject heavy symbol lines
+    bad_chars = ["|", "/", "\\", "{", "}", "[", "]", "=", "+", "_"]
+    if any(c in text for c in bad_chars):
+        return False
+
+    # ❌ too many non-letters (OCR garbage)
+    letter_ratio = sum(c.isalpha() for c in text) / len(text)
+    if letter_ratio < 0.6:
+        return False
+
+    # ❌ reject obvious junk words
+    junk_words = ["week", "menu", "day", "notes", "grocery"]
+    if any(j in lower for j in junk_words):
+        return False
+
+    # ❌ reject repeated weird patterns
+    if any(word * 2 in lower for word in words):
+        return False
+
+    return True
 
 def generate_ingredients(meal_name):
     name = meal_name.lower()
 
-    if "taco" in name:
-        return ["beef", "tortilla", "cheese"]
-    if "pizza" in name:
-        return ["dough", "cheese", "tomato sauce"]
-    if "alfredo" in name:
-        return ["chicken", "pasta", "cream"]
-    if "salad" in name:
-        return ["lettuce", "tomato", "dressing"]
-    if "burger" in name:
-        return ["beef", "bun", "lettuce"]
-    if "rice" in name:
-        return ["rice", "soy sauce", "egg"]
-    if "shrimp" in name:
-        return ["shrimp", "garlic", "butter"]
+    ingredients = []
 
-    # fallback
-    return ["ingredient1", "ingredient2"]
+    # 🔥 detect keywords FIRST (specific → general)
+    if "angel hair" in name:
+        ingredients.append("angel hair pasta")
+    elif "spaghetti" in name:
+        ingredients.append("spaghetti pasta")
+    elif "pasta" in name:
+        ingredients.append("pasta")
+
+    if "alfredo" in name:
+        ingredients += ["chicken", "cream", "parmesan"]
+
+    if "taco" in name:
+        ingredients += ["beef", "tortilla", "cheese", "lettuce"]
+
+    if "burrito" in name:
+        ingredients += ["chicken", "rice", "tortilla", "cheese"]
+
+    if "pizza" in name:
+        ingredients += ["dough", "cheese", "tomato sauce"]
+
+    if "burger" in name:
+        ingredients += ["beef", "bun", "cheese"]
+
+    if "salad" in name:
+        ingredients += ["lettuce", "tomato", "dressing"]
+
+    if "rice" in name:
+        ingredients += ["rice"]
+
+    if "shrimp" in name:
+        ingredients += ["shrimp", "garlic", "butter"]
+
+    if "stew" in name:
+        ingredients += ["beef", "potato", "carrot"]
+
+    # 🧠 fallback: extract useful words
+    if not ingredients:
+        words = [w for w in name.split() if len(w) > 3]
+        ingredients += words
+
+    # 🔥 normalize everything through your pipeline
+    return normalize_ingredients(ingredients)
+
 
 def merge_ingredient(name):
     return INGREDIENT_MAP.get(name, name)  
@@ -114,7 +190,6 @@ INGREDIENT_MAP.update({
     "green": "green chili",
     "chili": "green chili",
     "pancake": "pancake mix",
-    "angel hair pasta": "pasta"
 })
 KEEP_TOGETHER.extend([
     "green chili",
@@ -122,9 +197,9 @@ KEEP_TOGETHER.extend([
     "pork roast",
     "beef tacos",
     "veggie stir fry",
-    "angel hair pasta"
+    "angel hair pasta",
     "pancake mix",
-    "beef stew"
+    "beef stew",
 ])
 def clean_meal_name(name):
     if not name:
@@ -162,7 +237,28 @@ def normalize_ingredients(ingredients):
         item = item.lower().strip()
 
         # 🔥 check protected phrases FIRST
-        normalized_item = " ".join(item.lower().split())
+        normalized_item = " ".join(item.lower().replace(",", " ").split())
+
+        # 💥 catch angel hair FIRST
+        if "angel" in normalized_item and "hair" in normalized_item:
+            result.append("angel hair pasta")
+            continue
+
+        # 💥 check KEEP_TOGETHER BEFORE splitting
+        matched = False
+        for phrase in KEEP_TOGETHER:
+            normalized_phrase = " ".join(phrase.lower().split())
+
+            if normalized_phrase in normalized_item:
+                result.append(normalized_phrase)
+                matched = True
+                break
+
+        if matched:
+            continue
+
+        # ✅ ONLY NOW split
+        parts = normalized_item.split()
 
         matched = False
         for phrase in KEEP_TOGETHER:
@@ -210,7 +306,7 @@ def normalize_ingredients(ingredients):
 def categorize_ingredient(item):
     item = item.lower()
 
-    if item in [
+    if any(word in item for word in [
         "chicken",
         "beef",
         "pork",
@@ -221,10 +317,12 @@ def categorize_ingredient(item):
         "meatball",
         "carne",
         "hamburger",
-        "steak"
+        "steak",
         "ground beef", 
-        "beef stew"   
-    ]:
+        "beef stew",
+        "pork chop",
+
+    ]):
         return "Protein"
         
     if item in ["lettuce", "tomato", "onion", "garlic", "pepper","potato","vegetable"]:
@@ -233,7 +331,7 @@ def categorize_ingredient(item):
     if item in ["milk", "cheese", "butter", "cream"]:
         return "Dairy"
 
-    if item in ["rice", "pasta", "bread", "bun", "tortilla", "pilaf"]:
+    if any(word in item for word in ["rice", "pasta", "bread", "bun", "tortilla", "pilaf"]):
         return "Grains"
 
     return "Other"
@@ -249,29 +347,37 @@ fast_food_spots = [
 def normalize_name(name):
     return name.strip().lower()
 
-# ✅ ROUTES
+
+FRONTEND_BUILD = os.path.join(os.getcwd(), "frontend/dist")
+
 @app.route("/")
-def home():
-    return "API running"
+def serve():
+    return send_from_directory(FRONTEND_BUILD, "index.html")
+
+@app.route("/<path:path>")
+def static_proxy(path):
+    return send_from_directory(FRONTEND_BUILD, path) 
 
 @app.route("/fix-data")
 def fix_data():
     meals = Meal.query.all()
-
     seen_names = set()
 
     for meal in meals:
-        # ✅ fix ingredients
-        meal.ingredients = normalize_ingredients(meal.ingredients)
+        combined = " ".join(meal.ingredients) if meal.ingredients else ""
 
-        # ✅ fix name
+        # 🧠 BACKFILL if empty
+        if not combined.strip():
+            meal.ingredients = generate_ingredients(meal.name)
+        else:
+            meal.ingredients = normalize_ingredients(combined)
+
+        # ✅ clean name
         cleaned_name = clean_meal_name(meal.name)
-
-        # ✅ prevent duplicates after cleaning
         normalized = cleaned_name.lower()
 
+        # ✅ remove duplicates
         if normalized in seen_names:
-            # optional: delete duplicate
             db.session.delete(meal)
             continue
 
@@ -279,7 +385,6 @@ def fix_data():
         meal.name = cleaned_name
 
     db.session.commit()
-
     return "Data fully cleaned!"
 
 @app.route("/init-db")
@@ -364,34 +469,53 @@ def reroll_day(day):
         "meal": new_meal.to_dict()
     })    
 
+
 @app.route("/upload-menu", methods=["POST"])
 def upload_menu():
     try:
         file = request.files["image"]
-        image = Image.open(file)
 
-        text = pytesseract.image_to_string(image)
+       # 🔥 convert to OpenCV format
+        image = Image.open(file).convert("RGB")
+        img = np.array(image)
 
+        # 🔥 grayscale
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # 🔥 increase contrast
+        gray = cv2.convertScaleAbs(gray, alpha=1.5, beta=0)
+
+        # 🔥 blur
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+
+        # 🔥 simple threshold (THIS was working better for you)
+        _, thresh = cv2.threshold(blur, 150, 255, cv2.THRESH_BINARY)
+
+        config = "--psm 4"
+
+        text = pytesseract.image_to_string(thresh, config=config)
+
+        print("RAW OCR:", text)
+
+        # 🔥 split into lines FIRST
         lines = [line.strip() for line in text.split("\n") if line.strip()]
+
+        # 🔥 THEN filter
+        lines = [l for l in lines if is_valid_meal(l)]
 
         cleaned_meals = []
 
         for line in lines:
-            # ❌ Remove junk
             if len(line) < 3:
                 continue
-            if "weekly" in line.lower():
-                continue
 
-            # ✅ Fix common OCR issues
-            line = line.replace("e ", "")  # removes "e Chicken"
-            line = line.replace(" - ", "-")
-            line = line.strip()
-
-            cleaned = clean_meal_name(meal_name)
+            
+            cleaned = clean_meal_name(line)
 
             if not cleaned:
                 continue
+
+            cleaned_meals.append(cleaned)
 
         added = []
         skipped = []
@@ -549,7 +673,9 @@ def grocery():
 
     for day, meal in last_menu.meals.items():
         for item in meal["ingredients"]:
-            grocery[item] = grocery.get(item, 0) + 1
+            normalized_item = INGREDIENT_MAP.get(item, item)
+
+            grocery[normalized_item] = grocery.get(normalized_item, 0) + 1
 
     grouped = {}
 
@@ -574,6 +700,9 @@ def grocery():
         print("AI ERROR:", e)
         return jsonify(grouped)  # fallback
     
+def open_browser():
+    webbrowser.open("http://127.0.0.1:5000")
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    threading.Timer(1.5, open_browser).start()
+    app.run(debug=False)
