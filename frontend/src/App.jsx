@@ -236,11 +236,11 @@ useEffect(() => {
             <div key={category} style={{ marginBottom: "15px" }}>
               <h3 style={{ color: "#9ca3af" }}>{category}</h3>
               <ul style={{ paddingLeft: "15px" }}>
-                {items.map((i) => (
-                  <li key={i.item}>
-                    {i.item} <span style={{ opacity: 0.6 }}>x{i.qty}</span>
-                  </li>
-                ))}
+              {items.map((i) => (
+                <li key={i.item}>
+                  {i.item} <span style={{ opacity: 0.6 }}>({i.qty})</span>
+                </li>
+              ))}
               </ul>
             </div>
           ))}

@@ -46,7 +46,9 @@ app.exe
 ```
 
 No setup required.
-
+## Rebuild and Compile
+1. npm run build -in /frontend
+2. python -m PyInstaller --noconfirm --onefile --windowed --add-data "../frontend/dist;frontend/dist" app.py- in /backend
 
 ## 🚀 Running Locally
 

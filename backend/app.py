@@ -12,22 +12,17 @@ import webbrowser
 import threading
 import sys
 import requests
-
-
-
-
+import re
 
 if hasattr(sys, "_MEIPASS"):
-    # EXE
     FRONTEND_BUILD = os.path.join(sys._MEIPASS, "frontend/dist")
 else:
-    # LOCAL RUN
     FRONTEND_BUILD = os.path.abspath(
         os.path.join(os.path.dirname(__file__), "../frontend/dist")
     )
 
-FRONTEND_BUILD = r"C:\Users\j\dinner-menu-generator\frontend\dist"
-pytesseract.pytesseract.tesseract_cmd = "tesseract"
+
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 global current_week
 current_week = []
@@ -102,6 +97,47 @@ def is_valid_meal(text):
         return False
 
     return True
+
+@app.route("/import-file")
+def import_file():
+    import json
+    import os
+
+    path = os.path.join(os.path.dirname(__file__), "backup.json")
+
+    print("📂 IMPORT PATH:", path)
+    print("📂 EXISTS:", os.path.exists(path))
+
+    if not os.path.exists(path):
+        return f"❌ backup.json not found at {path}"
+
+    with open(path) as f:
+        data = json.load(f)
+
+    # ✅ SUPPORT BOTH FORMATS
+    if isinstance(data, list):
+        meals = data
+        menus = []
+    else:
+        meals = data.get("meals", [])
+        menus = data.get("menus", [])
+
+    # ✅ import meals
+    for m in meals:
+        existing = Meal.query.filter_by(name=m["name"]).first()
+        if not existing:
+            db.session.add(Meal(
+                name=m["name"],
+                ingredients=m.get("ingredients", [])
+            ))
+
+    # ✅ import menus (optional)
+    for menu in menus:
+        db.session.add(WeeklyMenu(meals=menu))
+
+    db.session.commit()
+
+    return f"✅ Imported {len(meals)} meals + {len(menus)} menus"
 
 def generate_ingredients(meal_name):
     name = meal_name.lower()
@@ -647,91 +683,170 @@ def get_meals():
 
 @app.route("/menu/week", methods=["GET"])
 def generate_week():
-    global current_week 
+    try:
+        meals = Meal.query.all()
+
+        if len(meals) < 7:
+            return jsonify({"error": "Add at least 7 meals"}), 400
+
+        selected = random.sample(meals, 7)
+
+        days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+
+        result = {
+            days[i]: selected[i].to_dict()
+            for i in range(7)
+        }
+
+        menu = WeeklyMenu(meals=result)
+        db.session.add(menu)
+        db.session.commit()
+
+        return jsonify(result)
+
+    except Exception as e:
+        print("❌ ERROR /menu/week:", e)
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/export")
+def export_data():
     meals = Meal.query.all()
-    
-    if len(meals) < 7:
-        return jsonify({"error": "Add at least 7 meals"}), 400
+    weekly = WeeklyMenu.query.all()
 
-    # ✅ Get last menu
-    last_menu = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).first()
+    return jsonify({
+        "meals": [m.to_dict() for m in meals],
+        "menus": [m.meals for m in weekly]
+    })
 
-    used_meal_names = set()
+@app.route("/import", methods=["POST"])
+def import_data():
+    data = request.json
 
-    if last_menu:
-        for day, meal in last_menu.meals.items():
-            used_meal_names.add(meal["name"])
+    for m in data["meals"]:
+        db.session.add(Meal(
+            name=m["name"],
+            ingredients=m["ingredients"]
+        ))
 
-    # ✅ Filter out previously used meals
-    available_meals = [m for m in meals if m.name not in used_meal_names]
+    for menu in data["menus"]:
+        db.session.add(WeeklyMenu(meals=menu))
 
-    # ⚠️ If not enough fresh meals, fallback to all
-    if len(available_meals) < 7:
-        available_meals = meals
-
-    selected = random.sample(available_meals, 7)
-
-    days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
-
-    result = {
-        days[i]: selected[i].to_dict()
-        for i in range(7)
-    }
-
-    # ✅ Save new menu
-    menu = WeeklyMenu(meals=result)
-    db.session.add(menu)
     db.session.commit()
 
-    return jsonify(result)
+    return {"status": "imported"}
 
 @app.route("/grocery", methods=["GET"])
 def grocery():
-    last_menu = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).first()
-
-    if not last_menu:
-        return jsonify({"error": "Generate a menu first"}), 400
-
-    grocery = {}
-
-    for day, meal in last_menu.meals.items():
-        for item in meal["ingredients"]:
-            normalized_item = INGREDIENT_MAP.get(item, item)
-
-            grocery[normalized_item] = grocery.get(normalized_item, 0) + 1
-
-    grouped = {}
-
-    for item, qty in grocery.items():
-        category = categorize_ingredient(item)
-
-        if category not in grouped:
-            grouped[category] = []
-
-        grouped[category].append({
-            "item": item,
-            "qty": qty
-        })
-
-    return jsonify(grouped)
-
-    # 🔥 AI enhancement (AFTER grouping is complete)
     try:
-        ai_result = enhance_grocery_list(grouped)
-        return ai_result  # optional: may return string
+        last_menu = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).first()
+
+        if not last_menu:
+            return jsonify({"error": "Generate a menu first"}), 400
+
+        # Structure: { "ingredient_name": { "unit_type": total_quantity } }
+        grocery_totals = {}
+
+        # Common units to intercept
+        unit_patterns = r"\b(lb|lbs|can|cans|oz|ozs|tsp|tbsp|cup|cups|pack|g|kg|piece|pieces)\b"
+
+        for day, meal in last_menu.meals.items():
+            if not meal.get("ingredients"):
+                continue
+                
+            for raw_item in meal["ingredients"]:
+                if not raw_item:
+                    continue
+                
+                # 1. Clean & apply your ingredient map
+                cleaned_str = raw_item.lower().strip()
+                
+                # 2. Try to parse quantity and units
+                qty = 1.0  # default multiplier
+                unit = "count"  # default unit if none found
+                
+                # Extract leading numbers (e.g., "2", "1.5", "1/2")
+                num_match = re.match(r"^([0-9\./\s]+)", cleaned_str)
+                if num_match:
+                    num_str = num_match.group(1).strip()
+                    # Handle basic fractions like 1/2
+                    if "/" in num_str:
+                        try:
+                            num, denom = num_str.split("/")
+                            qty = float(num) / float(denom)
+                        except ValueError:
+                            qty = 1.0
+                    else:
+                        try:
+                            qty = float(num_str)
+                        except ValueError:
+                            qty = 1.0
+                    
+                    # Strip the numbers out of the string
+                    cleaned_str = cleaned_str[num_match.end():].strip()
+
+                # Extract units
+                unit_match = re.search(unit_patterns, cleaned_str)
+                if unit_match:
+                    unit = unit_match.group(1)
+                    # Normalize plurals (e.g., lbs -> lb)
+                    if unit.endswith('s') and unit != 'sub':
+                        unit = unit[:-1]
+                    # Strip the unit out of the string
+                    cleaned_str = cleaned_str.replace(unit_match.group(0), "", 1).strip()
+
+                # Clean up any leftover punctuation or words like "of" (e.g., "cans of tomatoes")
+                cleaned_str = re.sub(r"^\bof\b", "", cleaned_str).strip()
+                cleaned_str = cleaned_str.strip(",.* ")
+
+                # Apply mapping translation
+                normalized_item = INGREDIENT_MAP.get(cleaned_str, cleaned_str)
+                if not normalized_item:
+                    continue
+
+                # 3. Aggregate by item AND unit type
+                if normalized_item not in grocery_totals:
+                    grocery_totals[normalized_item] = {}
+                
+                grocery_totals[normalized_item][unit] = grocery_totals[normalized_item].get(unit, 0.0) + qty
+
+        # 4. Group by your layout categories
+        grouped = {}
+        for item, units in grocery_totals.items():
+            category = categorize_ingredient(item)
+            if category not in grouped:
+                grouped[category] = []
+
+            # Format the output quantities cleanly
+            for unit, qty in units.items():
+                # Turn 2.0 into 2, but keep 1.5 as 1.5
+                display_qty = int(qty) if qty.is_integer() else round(qty, 2)
+                
+                # Clean up unit presentation
+                qty_str = f"{display_qty}" if unit == "count" else f"{display_qty} {unit}"
+                if unit != "count" and display_qty > 1:
+                    qty_str += "s" # re-add plural to unit if relevant
+
+                grouped[category].append({
+                    "item": item.title(),
+                    "qty": qty_str
+                })
+
+        return jsonify(grouped)
+
     except Exception as e:
-        print("AI ERROR:", e)
-        return jsonify(grouped)  # fallback
+        print("❌ ERROR /grocery:", e)
+        return jsonify({"error": str(e)}), 500
     
-    # ✅ AFTER app + routes are defined (or temporarily here)
-    print("📍 ROUTES REGISTERED:")
-    for rule in app.url_map.iter_rules():
-        print(rule)
+
 
 def open_browser():
     webbrowser.open("http://127.0.0.1:5000")
 
-    
+
+# ✅ AFTER app + routes are defined (or temporarily here)
+    print("📍 ROUTES REGISTERED:")
+    for rule in app.url_map.iter_rules():
+        print(rule)    
 
 if __name__ == "__main__":
     with app.app_context():
