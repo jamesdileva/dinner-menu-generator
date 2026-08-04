@@ -1,19 +1,38 @@
-from flask import Flask, request, jsonify, send_from_directory
-from flask_cors import CORS
-from flask_sqlalchemy import SQLAlchemy
-import random
-from PIL import Image
-import pytesseract
-import json
-import cv2
-import numpy as np
+"""Dinner Menu Generator — backend entrypoint (audit §4.1).
+
+This file used to be a ~950-line monolith holding models, utils, services *and* routes.
+It is now a thin bootstrapper: create the Flask app, load :class:`config.Config`,
+init SQLAlchemy via ``db.init_app``, register the four blueprints under ``routes/``
+and serve the bundled frontend. All real logic lives in:
+
+    models.py            SQLAlchemy models + unbound ``db``
+    config.py            Config object
+    utils.py             pure helpers + constants (ingredient normalisation, OCR helpers)
+    services/*.py        business logic (menu / grocery)
+    routes/*.py          Flask blueprints (meals / menu / grocery / data)
+"""
+
 import os
+import sys
+import shutil
 import webbrowser
 import threading
-import sys
-import requests
-import re
 
+from flask import Flask, jsonify, send_from_directory
+from flask_cors import CORS
+from flask_migrate import Migrate, upgrade, stamp
+
+import pytesseract
+
+from config import Config
+from models import db
+from utils import tesseract_path
+from routes.meals import meals_bp
+from routes.menu import menu_bp
+from routes.grocery import grocery_bp
+from routes.data import data_bp
+
+# --- PyInstaller-aware frontend build dir ---------------------------------
 if hasattr(sys, "_MEIPASS"):
     FRONTEND_BUILD = os.path.join(sys._MEIPASS, "frontend/dist")
 else:
@@ -21,836 +40,81 @@ else:
         os.path.join(os.path.dirname(__file__), "../frontend/dist")
     )
 
+# --- OCR engine availability (audit §4.5) ---------------------------------
+if not tesseract_path:
+    print("⚠️  WARNING: Tesseract not found in PATH — image upload (OCR) will not work.")
+    print("   Install Tesseract: https://github.com/tesseract-ocr/tesseract")
+else:
+    pytesseract.pytesseract.tesseract_cmd = tesseract_path
 
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-
-global current_week
-current_week = []
+# --- Application factory --------------------------------------------------
 app = Flask(__name__)
-CORS(app)
+app.config.from_object(Config)
+CORS(app, origins=app.config["CORS_ORIGINS"])
+db.init_app(app)
 
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///dinner.db"
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+# Point Alembic at an absolute migrations dir so it is found both in a dev
+# checkout (backend/migrations) and inside a PyInstaller build (_MEIPASS/migrations).
+if hasattr(sys, "_MEIPASS"):
+    _MIGRATIONS_DIR = os.path.join(sys._MEIPASS, "migrations")
+else:
+    _MIGRATIONS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "migrations"))
+Migrate(app, db, directory=_MIGRATIONS_DIR)  # audit §4.8 — Alembic migrations
 
-print("🚀 RUNNING THIS FILE")
 
-db = SQLAlchemy(app)
+# --- Health check (audit §4.4) -------------------------------------------
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok"})
 
-# ✅ MODEL FIRST
-# ✅ MODEL FIRST
-class Meal(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100))
-    ingredients = db.Column(db.JSON)
 
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "ingredients": self.ingredients
-        }
-
-
-class WeeklyMenu(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    meals = db.Column(db.JSON)      
-
-def is_valid_meal(text):
-    text = text.strip()
-
-    if not text:
-        return False
-
-    lower = text.lower()
-
-    # ❌ length guard
-    if len(text) < 3 or len(text) > 35:
-        return False
-
-    # ❌ must contain letters
-    if not any(c.isalpha() for c in text):
-        return False
-
-    words = lower.split()
-
-    # ❌ too many words = paragraph junk
-    if len(words) > 5:
-        return False
-
-    # ❌ reject heavy symbol lines
-    bad_chars = ["|", "/", "\\", "{", "}", "[", "]", "=", "+", "_"]
-    if any(c in text for c in bad_chars):
-        return False
-
-    # ❌ too many non-letters (OCR garbage)
-    letter_ratio = sum(c.isalpha() for c in text) / len(text)
-    if letter_ratio < 0.6:
-        return False
-
-    # ❌ reject obvious junk words
-    junk_words = ["week", "menu", "day", "notes", "grocery"]
-    if any(j in lower for j in junk_words):
-        return False
-
-    # ❌ reject repeated weird patterns
-    if any(word * 2 in lower for word in words):
-        return False
-
-    return True
-
-@app.route("/import-file")
-def import_file():
-    import json
-    import os
-
-    path = os.path.join(os.path.dirname(__file__), "backup.json")
-
-    print("📂 IMPORT PATH:", path)
-    print("📂 EXISTS:", os.path.exists(path))
-
-    if not os.path.exists(path):
-        return f"❌ backup.json not found at {path}"
-
-    with open(path) as f:
-        data = json.load(f)
-
-    # ✅ SUPPORT BOTH FORMATS
-    if isinstance(data, list):
-        meals = data
-        menus = []
-    else:
-        meals = data.get("meals", [])
-        menus = data.get("menus", [])
-
-    # ✅ import meals
-    for m in meals:
-        existing = Meal.query.filter_by(name=m["name"]).first()
-        if not existing:
-            db.session.add(Meal(
-                name=m["name"],
-                ingredients=m.get("ingredients", [])
-            ))
-
-    # ✅ import menus (optional)
-    for menu in menus:
-        db.session.add(WeeklyMenu(meals=menu))
-
-    db.session.commit()
-
-    return f"✅ Imported {len(meals)} meals + {len(menus)} menus"
-
-def generate_ingredients(meal_name):
-    name = meal_name.lower()
-
-    ingredients = []
-
-    # 🔥 detect keywords FIRST (specific → general)
-    if "angel hair" in name:
-        ingredients.append("angel hair pasta")
-    elif "spaghetti" in name:
-        ingredients.append("spaghetti pasta")
-    elif "pasta" in name:
-        ingredients.append("pasta")
-
-    if "alfredo" in name:
-        ingredients += ["chicken", "cream", "parmesan"]
-
-    if "taco" in name:
-        ingredients += ["beef", "tortilla", "cheese", "lettuce"]
-
-    if "burrito" in name:
-        ingredients += ["chicken", "rice", "tortilla", "cheese"]
-
-    if "pizza" in name:
-        ingredients += ["dough", "cheese", "tomato sauce"]
-
-    if "burger" in name:
-        ingredients += ["beef", "bun", "cheese"]
-
-    if "salad" in name:
-        ingredients += ["lettuce", "tomato", "dressing"]
-
-    if "rice" in name:
-        ingredients += ["rice"]
-
-    if "shrimp" in name:
-        ingredients += ["shrimp", "garlic", "butter"]
-
-    if "stew" in name:
-        ingredients += ["beef", "potato", "carrot"]
-
-    # 🧠 fallback: extract useful words
-    if not ingredients:
-        words = [w for w in name.split() if len(w) > 3]
-        ingredients += words
-
-    # 🔥 normalize everything through your pipeline
-    return normalize_ingredients(ingredients)
-
-
-def merge_ingredient(name):
-    return INGREDIENT_MAP.get(name, name)  
-
-IGNORE_WORDS = [
-    "mix",
-    "premade",
-    "or",
-    "white",
-    "sub",
-    "sandwich"
-]
-IGNORE_WORDS.append("sauce")
-IGNORE_WORDS.extend([
-    "and"
-])
-KEEP_TOGETHER = [
-    "pancake mix",
-    "tomato sauce",
-    "soy sauce",
-    "hot sauce",
-    "bbq sauce",
-    "premade lasagna",
-    "lasagna",
-    "rice pilaf",
-    "angel hair pasta",
-    "ground beef",
-    "tri tip",
-    "pork chop",
-    "white rice",
-]
-
-INGREDIENT_MAP = {
-    "chicken breast": "chicken",
-    "chicken thigh": "chicken",
-    "ground beef": "beef",
-    "steak": "beef",
-    "shredded cheese": "cheese",
-    "mozzarella cheese": "cheese",
-    "white rice": "rice",
-    "brown rice": "rice",
-    "tri tip": "beef",
-    "tri": "beef",
-    "tip": "beef",
-    "angelhair": "pasta",
-    "noodle": "pasta"
-}
-INGREDIENT_MAP.update({
-    "potatoe": "potato",
-    "veggie": "vegetable",
-    "meat": "beef",
-    "roast": "pork",
-    "stew": "beef stew",
-    "green": "green chili",
-    "chili": "green chili",
-    "pancake": "pancake mix",
-})
-KEEP_TOGETHER.extend([
-    "green chili",
-    "chicken burritos",
-    "pork roast",
-    "beef tacos",
-    "veggie stir fry",
-    "angel hair pasta",
-    "pancake mix",
-    "beef stew",
-])
-def clean_meal_name(name):
-    if not name:
-        return name
-
-    name = name.strip()
-
-    # remove extra spaces
-    name = " ".join(name.split())
-
-    # fix casing (Title Case)
-    name = name.title()
-
-    # quick typo fixes (you can expand this later)
-    fixes = {
-        "Lasagnaa": "Lasagna",
-        "Taco Boowl": "Taco Bowl",
-        "Veggistir- Fry": "Veggie Stir Fry"
-    }
-
-    return fixes.get(name, name)
-
-def normalize_ingredients(ingredients):
-    result = []
-
-    if isinstance(ingredients, list):
-        items = ingredients
-    else:
-        items = [ingredients]
-
-    for item in items:
-        if not item:
-            continue
-
-        item = item.lower().strip()
-
-        # 🔥 check protected phrases FIRST
-        normalized_item = " ".join(item.lower().replace(",", " ").split())
-
-        # 💥 catch angel hair FIRST
-        if "angel" in normalized_item and "hair" in normalized_item:
-            result.append("angel hair pasta")
-            continue
-
-        # 💥 check KEEP_TOGETHER BEFORE splitting
-        matched = False
-        for phrase in KEEP_TOGETHER:
-            normalized_phrase = " ".join(phrase.lower().split())
-
-            if normalized_phrase in normalized_item:
-                result.append(normalized_phrase)
-                matched = True
-                break
-
-        if matched:
-            continue
-
-        # ✅ ONLY NOW split
-        parts = normalized_item.split()
-
-        matched = False
-        for phrase in KEEP_TOGETHER:
-            if phrase in normalized_item:
-                result.append(phrase)
-                matched = True
-                break
-
-        if matched:
-            continue
-
-        # normal splitting
-        parts = item.split(",")
-
-        for part in parts:
-            sub_parts = part.split(" ")
-
-            for p in sub_parts:
-                cleaned = p.strip()
-
-                if not cleaned:
-                    continue
-
-                if cleaned.startswith("ingredient"):
-                    continue
-
-                if len(cleaned) < 2:
-                    continue
-
-                # ignore junk words EARLY
-                if cleaned in IGNORE_WORDS:
-                    continue
-
-                # singular fix
-                if cleaned.endswith("s") and len(cleaned) > 3:
-                    cleaned = cleaned[:-1]
-
-                # merge AFTER normalization
-                cleaned = merge_ingredient(cleaned)
-
-                result.append(cleaned)
-
-    return result
-
-def categorize_ingredient(item):
-    item = item.lower()
-
-    if any(word in item for word in [
-        "chicken",
-        "beef",
-        "pork",
-        "egg",
-        "shrimp",
-        "sausage",
-        "bacon",
-        "meatball",
-        "carne",
-        "hamburger",
-        "steak",
-        "ground beef", 
-        "beef stew",
-        "pork chop",
-
-    ]):
-        return "Protein"
-        
-    if item in ["lettuce", "tomato", "onion", "garlic", "pepper","potato","vegetable"]:
-        return "Produce"
-
-    if item in ["milk", "cheese", "butter", "cream"]:
-        return "Dairy"
-
-    if any(word in item for word in ["rice", "pasta", "bread", "bun", "tortilla", "pilaf"]):
-        return "Grains"
-
-    return "Other"
-
-fast_food_spots = [
-    {"name": "McDonald's", "type": "Fast Food"},
-    {"name": "Chipotle", "type": "Mexican"},
-    {"name": "Pizza Hut", "type": "Pizza"},
-    {"name": "Subway", "type": "Sandwiches"},
-    {"name": "Chick-fil-A", "type": "Chicken"}
-]
-
-def normalize_name(name):
-    return name.strip().lower()
-
-print("FRONTEND_BUILD:", FRONTEND_BUILD)
-print("FILES:", os.listdir(FRONTEND_BUILD) if os.path.exists(FRONTEND_BUILD) else "MISSING")
-
+# --- Frontend serving ----------------------------------------------------
 @app.route("/")
 def serve():
     index_path = os.path.join(FRONTEND_BUILD, "index.html")
-    print("TRYING:", index_path)
-
     if not os.path.exists(index_path):
         return f"Missing index.html at {index_path}", 500
-
     return send_from_directory(FRONTEND_BUILD, "index.html")
+
 
 @app.route("/assets/<path:filename>")
 def assets(filename):
     return send_from_directory(os.path.join(FRONTEND_BUILD, "assets"), filename)
 
-@app.route("/fix-data")
-def fix_data():
-    meals = Meal.query.all()
-    seen_names = set()
 
-    for meal in meals:
-        combined = " ".join(meal.ingredients) if meal.ingredients else ""
-
-        # 🧠 BACKFILL if empty
-        if not combined.strip():
-            meal.ingredients = generate_ingredients(meal.name)
-        else:
-            meal.ingredients = normalize_ingredients(combined)
-
-        # ✅ clean name
-        cleaned_name = clean_meal_name(meal.name)
-        normalized = cleaned_name.lower()
-
-        # ✅ remove duplicates
-        if normalized in seen_names:
-            db.session.delete(meal)
-            continue
-
-        seen_names.add(normalized)
-        meal.name = cleaned_name
-
-    db.session.commit()
-    return "Data fully cleaned!"
-
-@app.route("/init-db")
-def init_db():
-    db.create_all()
-    return "DB initialized"
-import random
-
-used_today = set()  # simple in-memory (can upgrade later)
-
-import random
-
-used_today = set()  # avoid repeats
-
-@app.route("/menu/takeout", methods=["GET"])
-def takeout():
-    import random
-    return jsonify(random.choice(fast_food_spots))
-
-@app.route("/menu/decide", methods=["GET"])
-def decide():
-    import random
-
-    choice = random.choice(["home", "takeout"])
-
-    if choice == "home":
-        meals = Meal.query.all()
-        meal = random.choice(meals)
-        return jsonify({"mode": "home", "meal": meal.to_dict()})
-
-    else:
-        return jsonify({"mode": "takeout", "meal": random.choice(fast_food_spots)})    
-
-@app.route("/menu/today", methods=["GET"])
-def meal_today():
-    global used_today
-
-    meals = Meal.query.all()
-
-    if not meals:
-        return jsonify({"error": "No meals available"}), 400
-
-    # filter unused meals
-    available = [m for m in meals if m.name not in used_today]
-
-    # reset if we've used all meals
-    if not available:
-        used_today.clear()
-        available = meals
-
-    meal = random.choice(available)
-
-    used_today.add(meal.name)
-
-    return jsonify(meal.to_dict())
-
-@app.route("/menu/reroll/<day>", methods=["POST"])
-def reroll_day(day):
-    last_menu = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).first()
-
-    if not last_menu:
-        return jsonify({"error": "Generate a menu first"}), 400
-
-    meals = Meal.query.all()
-
-    if len(meals) < 1:
-        return jsonify({"error": "No meals available"}), 400
-
-    # avoid current meal for that day
-    current_meal_name = last_menu.meals[day]["name"]
-
-    available = [m for m in meals if m.name != current_meal_name]
-
-    import random
-    new_meal = random.choice(available)
-
-    last_menu.meals[day] = new_meal.to_dict()
-    db.session.commit()
-
-    return jsonify({
-        "day": day,
-        "meal": new_meal.to_dict()
-    })    
-
-
-@app.route("/upload-menu", methods=["POST"])
-def upload_menu():
-    try:
-        file = request.files["image"]
-
-       # 🔥 convert to OpenCV format
-        image = Image.open(file).convert("RGB")
-        img = np.array(image)
-
-        # 🔥 grayscale
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-        # 🔥 increase contrast
-        gray = cv2.convertScaleAbs(gray, alpha=1.5, beta=0)
-
-        # 🔥 blur
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
-
-        # 🔥 simple threshold (THIS was working better for you)
-        _, thresh = cv2.threshold(blur, 150, 255, cv2.THRESH_BINARY)
-
-        config = "--psm 4"
-
-        text = pytesseract.image_to_string(thresh, config=config)
-
-        print("RAW OCR:", text)
-
-        # 🔥 split into lines FIRST
-        lines = [line.strip() for line in text.split("\n") if line.strip()]
-
-        # 🔥 THEN filter
-        lines = [l for l in lines if is_valid_meal(l)]
-
-        cleaned_meals = []
-
-        for line in lines:
-            if len(line) < 3:
-                continue
-
-            
-            cleaned = clean_meal_name(line)
-
-            if not cleaned:
-                continue
-
-            cleaned_meals.append(cleaned)
-
-        added = []
-        skipped = []
-        updated = []
-        for meal_name in cleaned_meals:
-            name_lower = meal_name.lower()
-
-            existing = Meal.query.filter(
-                db.func.lower(Meal.name) == name_lower
-            ).first()
-
-            if existing:
-                # 🔥 NEW LOGIC: fill missing ingredients
-                if not existing.ingredients or len(existing.ingredients) == 0:
-                    existing.ingredients = generate_ingredients(meal_name)
-                    updated.append(meal_name)
-                else:
-                    skipped.append(meal_name)
-                continue
-
-            meal = Meal(
-                name=meal_name,
-                ingredients=generate_ingredients(meal_name)  # we’ll upgrade this later
-            )
-
-            db.session.add(meal)
-            added.append(meal_name)
-
-        db.session.commit()
-
-        return jsonify({
-            "added": added,
-            "updated": updated,
-            "skipped": skipped
-        })
-
-    except Exception as e:
-        print("ERROR:", e)
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/meal", methods=["POST"])
-def add_meal():
-    data = request.json
-
-    # ✅ define FIRST
-    raw_name = data["name"]
-    name = raw_name.strip()
-    normalized = raw_name.strip().lower()
-
-    # ✅ check duplicate
-    existing = Meal.query.filter(
-        db.func.lower(Meal.name) == normalized
-    ).first()
-
-    if existing:
-        return jsonify({"error": "Meal already exists"}), 400
-
-    # ✅ normalize ingredients
-    ingredients = normalize_ingredients(data.get("ingredients", []))
-
-    # ✅ create meal
-    meal = Meal(
-        name=name,
-        ingredients=ingredients
-    )
-
-    db.session.add(meal)
-    db.session.commit()
-
-    return jsonify({"success": True})
-
-@app.route("/meal/<int:id>", methods=["PUT"])
-def update_meal(id):
-    meal = db.session.get(Meal, id)
-
-    if not meal:
-        return jsonify({"error": "Meal not found"}), 404
-
-    data = request.json
-
-    meal.name = data.get("name", meal.name)
-    meal.ingredients = data.get("ingredients", meal.ingredients)
-
-    db.session.commit()
-
-    return jsonify({"success": True})
-
-    
-
-@app.route("/meal/<int:id>", methods=["DELETE"])
-def delete_meal(id):
-    meal = db.session.get(Meal, id)
-
-    if not meal:
-        return jsonify({"error": "Meal not found"}), 404
-
-    db.session.delete(meal)
-    db.session.commit()
-
-    return jsonify({"success": True})
-
-@app.route("/meals", methods=["GET"])
-def get_meals():
-    meals = Meal.query.order_by(Meal.name.asc()).all()
-    return jsonify([m.to_dict() for m in meals])
-
-@app.route("/menu/week", methods=["GET"])
-def generate_week():
-    try:
-        meals = Meal.query.all()
-
-        if len(meals) < 7:
-            return jsonify({"error": "Add at least 7 meals"}), 400
-
-        selected = random.sample(meals, 7)
-
-        days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
-
-        result = {
-            days[i]: selected[i].to_dict()
-            for i in range(7)
-        }
-
-        menu = WeeklyMenu(meals=result)
-        db.session.add(menu)
-        db.session.commit()
-
-        return jsonify(result)
-
-    except Exception as e:
-        print("❌ ERROR /menu/week:", e)
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/export")
-def export_data():
-    meals = Meal.query.all()
-    weekly = WeeklyMenu.query.all()
-
-    return jsonify({
-        "meals": [m.to_dict() for m in meals],
-        "menus": [m.meals for m in weekly]
-    })
-
-@app.route("/import", methods=["POST"])
-def import_data():
-    data = request.json
-
-    for m in data["meals"]:
-        db.session.add(Meal(
-            name=m["name"],
-            ingredients=m["ingredients"]
-        ))
-
-    for menu in data["menus"]:
-        db.session.add(WeeklyMenu(meals=menu))
-
-    db.session.commit()
-
-    return {"status": "imported"}
-
-@app.route("/grocery", methods=["GET"])
-def grocery():
-    try:
-        last_menu = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).first()
-
-        if not last_menu:
-            return jsonify({"error": "Generate a menu first"}), 400
-
-        # Structure: { "ingredient_name": { "unit_type": total_quantity } }
-        grocery_totals = {}
-
-        # Common units to intercept
-        unit_patterns = r"\b(lb|lbs|can|cans|oz|ozs|tsp|tbsp|cup|cups|pack|g|kg|piece|pieces)\b"
-
-        for day, meal in last_menu.meals.items():
-            if not meal.get("ingredients"):
-                continue
-                
-            for raw_item in meal["ingredients"]:
-                if not raw_item:
-                    continue
-                
-                # 1. Clean & apply your ingredient map
-                cleaned_str = raw_item.lower().strip()
-                
-                # 2. Try to parse quantity and units
-                qty = 1.0  # default multiplier
-                unit = "count"  # default unit if none found
-                
-                # Extract leading numbers (e.g., "2", "1.5", "1/2")
-                num_match = re.match(r"^([0-9\./\s]+)", cleaned_str)
-                if num_match:
-                    num_str = num_match.group(1).strip()
-                    # Handle basic fractions like 1/2
-                    if "/" in num_str:
-                        try:
-                            num, denom = num_str.split("/")
-                            qty = float(num) / float(denom)
-                        except ValueError:
-                            qty = 1.0
-                    else:
-                        try:
-                            qty = float(num_str)
-                        except ValueError:
-                            qty = 1.0
-                    
-                    # Strip the numbers out of the string
-                    cleaned_str = cleaned_str[num_match.end():].strip()
-
-                # Extract units
-                unit_match = re.search(unit_patterns, cleaned_str)
-                if unit_match:
-                    unit = unit_match.group(1)
-                    # Normalize plurals (e.g., lbs -> lb)
-                    if unit.endswith('s') and unit != 'sub':
-                        unit = unit[:-1]
-                    # Strip the unit out of the string
-                    cleaned_str = cleaned_str.replace(unit_match.group(0), "", 1).strip()
-
-                # Clean up any leftover punctuation or words like "of" (e.g., "cans of tomatoes")
-                cleaned_str = re.sub(r"^\bof\b", "", cleaned_str).strip()
-                cleaned_str = cleaned_str.strip(",.* ")
-
-                # Apply mapping translation
-                normalized_item = INGREDIENT_MAP.get(cleaned_str, cleaned_str)
-                if not normalized_item:
-                    continue
-
-                # 3. Aggregate by item AND unit type
-                if normalized_item not in grocery_totals:
-                    grocery_totals[normalized_item] = {}
-                
-                grocery_totals[normalized_item][unit] = grocery_totals[normalized_item].get(unit, 0.0) + qty
-
-        # 4. Group by your layout categories
-        grouped = {}
-        for item, units in grocery_totals.items():
-            category = categorize_ingredient(item)
-            if category not in grouped:
-                grouped[category] = []
-
-            # Format the output quantities cleanly
-            for unit, qty in units.items():
-                # Turn 2.0 into 2, but keep 1.5 as 1.5
-                display_qty = int(qty) if qty.is_integer() else round(qty, 2)
-                
-                # Clean up unit presentation
-                qty_str = f"{display_qty}" if unit == "count" else f"{display_qty} {unit}"
-                if unit != "count" and display_qty > 1:
-                    qty_str += "s" # re-add plural to unit if relevant
-
-                grouped[category].append({
-                    "item": item.title(),
-                    "qty": qty_str
-                })
-
-        return jsonify(grouped)
-
-    except Exception as e:
-        print("❌ ERROR /grocery:", e)
-        return jsonify({"error": str(e)}), 500
-    
+# --- Register blueprints (audit §4.1) ------------------------------------
+app.register_blueprint(meals_bp)
+app.register_blueprint(menu_bp)
+app.register_blueprint(grocery_bp)
+app.register_blueprint(data_bp)
+
+print("FRONTEND_BUILD:", FRONTEND_BUILD)
+print("FILES:", os.listdir(FRONTEND_BUILD) if os.path.exists(FRONTEND_BUILD) else "MISSING")
 
 
 def open_browser():
     webbrowser.open("http://127.0.0.1:5000")
 
 
-# ✅ AFTER app + routes are defined (or temporarily here)
-    print("📍 ROUTES REGISTERED:")
-    for rule in app.url_map.iter_rules():
-        print(rule)    
-
 if __name__ == "__main__":
     with app.app_context():
-        db.create_all()
+        # audit §4.8 — apply Alembic migrations first. For a fresh install `upgrade()`
+        # creates the tables; for an existing dinner.db that is already stamped it is a
+        # no-op. The create_all() fallback (plus a best-effort `stamp head`) covers legacy
+        # DBs that predate the migration bundle, so existing users never lose data.
+        try:
+            upgrade()
+        except Exception as e:
+            print("⚠️  Alembic upgrade unavailable, falling back to db.create_all():", e)
+            db.create_all()
+            try:
+                stamp("head")
+            except Exception:
+                pass
+
+    print("📍 ROUTES REGISTERED:")
+    for rule in app.url_map.iter_rules():
+        print(rule)
+
     threading.Timer(1.5, open_browser).start()
     app.run(debug=False)
-    

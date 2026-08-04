@@ -1,5 +1,8 @@
-import { useState } from "react";
-import { useEffect } from "react";
+import { useState, useEffect } from "react";
+import { apiFetch, MEALS_PER_PAGE } from "./api.js";
+import Menu from "./components/Menu.jsx";
+import GroceryList from "./components/GroceryList.jsx";
+import AddMeal from "./components/AddMeal.jsx";
 
 const card = {
   background: "#1e1e1e",
@@ -9,30 +12,14 @@ const card = {
   boxShadow: "0 0 10px rgba(0,0,0,0.3)"
 };
 
-const input = {
-  display: "block",
-  width: "100%",
-  marginBottom: "10px",
-  padding: "8px",
-  borderRadius: "6px",
-  border: "1px solid #333",
-  background: "#2a2a2a",
-  color: "#fff"
-};
-
-const btn = {
+const btnSmall = {
   background: "#3b82f6",
   border: "none",
-  padding: "8px 12px",
+  padding: "4px 8px",
+  marginLeft: "5px",
   borderRadius: "6px",
   color: "white",
   cursor: "pointer"
-};
-
-const btnSmall = {
-  ...btn,
-  padding: "4px 8px",
-  marginLeft: "5px"
 };
 
 const listItem = {
@@ -49,267 +36,251 @@ const resultBox = {
   background: "#2a2a2a",
   borderRadius: "8px"
 };
+
+const errorBanner = {
+  background: "#7f1d1d",
+  color: "#fee2e2",
+  padding: "10px",
+  borderRadius: "8px",
+  marginBottom: "15px",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center"
+};
+
+const spinner = {
+  display: "inline-block",
+  width: "14px",
+  height: "14px",
+  border: "2px solid #3b82f6",
+  borderTopColor: "transparent",
+  borderRadius: "50%",
+  animation: "spin 0.7s linear infinite"
+};
+
 export default function App() {
   const [menu, setMenu] = useState(null);
   const [name, setName] = useState("");
   const [ingredients, setIngredients] = useState("");
   const [grocery, setGrocery] = useState(null);
   const [meals, setMeals] = useState([]);
+  const [mealsPage, setMealsPage] = useState(1);
+  const [mealsPages, setMealsPages] = useState(1);
+  const [mealsTotal, setMealsTotal] = useState(0);
   const [today, setToday] = useState(null);
   const [takeout, setTakeout] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  async function getTodayMeal() {
-    const res = await fetch("http://localhost:5000/menu/today");
-    const data = await res.json();
-    setToday(data);
+  // 4.2 centralised loading + error handling for async actions
+  async function withLoading(fn) {
+    setError(null);
+    setLoading(true);
+    try {
+      await fn();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
   }
-  async function loadMenu() {
-    const res = await fetch("http://localhost:5000/menu/week");
-    const data = await res.json();
-    setMenu(data);
-  }
 
-async function loadMeals() {
-  const res = await fetch("http://localhost:5000/meals");
-  const data = await res.json();
-  setMeals(data);
-}
+  const getTodayMeal = () => withLoading(async () => {
+    setToday(await apiFetch("/menu/today"));
+  });
 
-  async function loadMenu() {
-    const res = await fetch("http://localhost:5000/menu/week");
-    const data = await res.json();
+  const getTakeout = () => withLoading(async () => {
+    setTakeout(await apiFetch("/menu/takeout"));
+  });
+
+  const loadMenu = () => withLoading(async () => {
+    const data = await apiFetch("/menu/week");
     setMenu(data);
     setGrocery(null); // reset grocery
-  }
-
-async function loadGrocery() {
-  const res = await fetch("http://localhost:5000/grocery");
-  const data = await res.json();
-
-  if (data.error) {
-    alert(data.error);
-    return;
-  }
-
-  setGrocery(data);
-}
-
-async function getTakeout() {
-  const res = await fetch("http://localhost:5000/menu/takeout");
-  const data = await res.json();
-  setTakeout(data);
-}
-
-async function rerollDay(day) {
-  const res = await fetch(`http://localhost:5000/menu/reroll/${day}`, {
-    method: "POST"
   });
 
-  const data = await res.json();
-
-  setMenu(prev => ({
-    ...prev,
-    [day]: data.meal
-  }));
-}
-
-async function editMeal(meal) {
-  const newName = prompt("New name:", meal.name);
-  if (!newName) return;
-
-  const newIngredients = prompt(
-    "Ingredients (comma separated):",
-    meal.ingredients.join(", ")
-  );
-
-  if (!newIngredients) return;
-
-  await fetch(`http://localhost:5000/meal/${meal.id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name: newName,
-      ingredients: newIngredients.split(",").map(i => i.trim())
-    })
+  const loadGrocery = () => withLoading(async () => {
+    setGrocery(await apiFetch("/grocery"));
   });
 
-  loadMeals();
-}
-
-async function uploadImage(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  const formData = new FormData();
-  formData.append("image", file);
-
-  const res = await fetch("http://localhost:5000/upload-menu", {
-    method: "POST",
-    body: formData
+  const rerollDay = (day) => withLoading(async () => {
+    const data = await apiFetch(`/menu/reroll/${day}`, { method: "POST" });
+    setMenu(prev => ({
+      ...prev,
+      [day]: data.meal
+    }));
   });
 
-  const data = await res.json();
-
-  console.log(data);
-
-  alert(
-    `Added: ${data.added.length}
-  Updated: ${data.updated.length}
-  Skipped: ${data.skipped.length}`
-  );
-
-  loadMeals(); // 🔥 refresh UI
-}
-
-async function deleteMeal(id) {
-  await fetch(`http://localhost:5000/meal/${id}`, {
-    method: "DELETE"
+  const loadMeals = (page = 1) => withLoading(async () => {
+    const data = await apiFetch(`/meals?page=${page}&limit=${MEALS_PER_PAGE}`);
+    setMeals(data.meals);
+    setMealsPage(data.page);
+    setMealsPages(data.pages);
+    setMealsTotal(data.total);
   });
 
-  loadMeals(); // ✅ refresh UI
-}
+  const editMeal = (meal) => {
+    const newName = prompt("New name:", meal.name);
+    if (!newName) return;
 
-  async function addMeal() {
-  const res = await fetch("http://localhost:5000/meal", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      name,
-      ingredients: ingredients.split(",").map(i => i.trim())
-    })
+    const newIngredients = prompt(
+      "Ingredients (comma separated):",
+      meal.ingredients.join(", ")
+    );
+
+    if (!newIngredients) return;
+
+    withLoading(async () => {
+      await apiFetch(`/meal/${meal.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newName,
+          ingredients: newIngredients.split(",").map(i => i.trim())
+        })
+      });
+      loadMeals(mealsPage);
+    });
+  };
+
+  const uploadImage = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("image", file);
+
+    withLoading(async () => {
+      const data = await apiFetch("/upload-menu", {
+        method: "POST",
+        body: formData
+      });
+      alert(
+        `Added: ${data.added.length}\nUpdated: ${data.updated.length}\nSkipped: ${data.skipped.length}`
+      );
+      loadMeals(1);
+    });
+  };
+
+  const deleteMeal = (id) => withLoading(async () => {
+    await apiFetch(`/meal/${id}`, { method: "DELETE" });
+    loadMeals(mealsPage);
   });
 
-  const data = await res.json();
+  const addMeal = () => withLoading(async () => {
+    await apiFetch("/meal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        ingredients: ingredients.split(",").map(i => i.trim())
+      })
+    });
+    setName("");
+    setIngredients("");
+    loadMeals(1);
+  });
 
-  if (data.error) {
-    alert(data.error);
-    return;
-  }
+  useEffect(() => {
+    loadMeals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  setName("");
-  setIngredients("");
-
-  loadMeals(); // ✅ THIS FIXES IT
-}
-useEffect(() => {
-  loadMeals();
-}, []);
   return (
-  <div style={{
-    background: "#121212",
-    color: "#e5e5e5",
-    minHeight: "100vh",
-    padding: "25px",
-    fontFamily: "Arial",
-    maxWidth: "900px",
-    margin: "0 auto"
-  }}>
-    <h1 style={{ marginBottom: "25px" }}>🍽 Dinner Planner</h1>
+    <div style={{
+      background: "#121212",
+      color: "#e5e5e5",
+      minHeight: "100vh",
+      padding: "25px",
+      fontFamily: "Arial",
+      maxWidth: "900px",
+      margin: "0 auto"
+    }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
-    {/* WEEKLY MENU */}
-    <div style={card}>
-      <h2>Weekly Menu</h2>
-      <button style={btn} onClick={loadMenu}>Generate Week</button>
+      <h1 style={{ marginBottom: "25px" }}>🍽 Dinner Planner</h1>
 
-      {menu && (
-        <ul style={{ listStyle: "none", padding: 0, marginTop: "10px" }}>
-          {Object.entries(menu).map(([day, meal]) => (
-            <li key={day} style={listItem}>
-              <span><strong>{day}:</strong> {meal.name}</span>
-              <button style={btnSmall} onClick={() => rerollDay(day)}>🔄</button>
+      {error && (
+        <div style={errorBanner}>
+          <span>{error}</span>
+          <button style={btnSmall} onClick={() => setError(null)}>✕</button>
+        </div>
+      )}
+      {loading && (
+        <div style={{ marginBottom: "10px" }}>Loading <span style={spinner}></span></div>
+      )}
+
+      {/* WEEKLY MENU */}
+      <Menu
+        menu={menu}
+        onGenerate={loadMenu}
+        onReroll={rerollDay}
+      />
+
+      {/* GROCERY LIST */}
+      <GroceryList
+        grocery={grocery}
+        onGenerate={loadGrocery}
+      />
+
+      {/* ADD MEAL */}
+      <AddMeal
+        name={name}
+        ingredients={ingredients}
+        onNameChange={(e) => setName(e.target.value)}
+        onIngredientsChange={(e) => setIngredients(e.target.value)}
+        onAdd={addMeal}
+        onUpload={uploadImage}
+      />
+
+      {/* QUICK PICK */}
+      <div style={card}>
+        <h2>Quick Pick</h2>
+        <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
+          <button style={{...btnSmall, padding:"8px 12px"}} onClick={getTodayMeal}>🍽 Home</button>
+          <button style={{...btnSmall, padding:"8px 12px"}} onClick={getTakeout}>🍔 Takeout</button>
+        </div>
+
+        {today && (
+          <div style={resultBox}>
+            <strong>At Home:</strong>
+            <h3>{today.name}</h3>
+          </div>
+        )}
+
+        {takeout && (
+          <div style={resultBox}>
+            <strong>Takeout:</strong>
+            <h3>{takeout.name}</h3>
+            <p style={{ opacity: 0.7 }}>{takeout.type}</p>
+          </div>
+        )}
+      </div>
+
+      {/* ALL MEALS (paginated) */}
+      <div style={card}>
+        <h2>All Meals</h2>
+        <ul style={{ listStyle: "none", padding: 0 }}>
+          {meals.map((meal) => (
+            <li key={meal.id} style={listItem}>
+              <span>{meal.name}</span>
+              <div>
+                <button style={btnSmall} onClick={() => editMeal(meal)}>✏️</button>
+                <button style={btnSmall} onClick={() => deleteMeal(meal.id)}>❌</button>
+              </div>
             </li>
           ))}
         </ul>
-      )}
-    </div>
 
-    {/* GROCERY LIST */}
-    <div style={card}>
-      <h2>Grocery List</h2>
-      <button style={btn} onClick={loadGrocery}>Generate Grocery</button>
-
-      {grocery && (
-        <div style={{ marginTop: "15px" }}>
-          {Object.entries(grocery).map(([category, items]) => (
-            <div key={category} style={{ marginBottom: "15px" }}>
-              <h3 style={{ color: "#9ca3af" }}>{category}</h3>
-              <ul style={{ paddingLeft: "15px" }}>
-              {items.map((i) => (
-                <li key={i.item}>
-                  {i.item} <span style={{ opacity: 0.6 }}>({i.qty})</span>
-                </li>
-              ))}
-              </ul>
-            </div>
-          ))}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px", fontSize: "13px", color: "#9ca3af" }}>
+          <span>Page {mealsPage}/{mealsPages} ({mealsTotal} meals)</span>
+          <div>
+            <button style={btnSmall} onClick={() => loadMeals(mealsPage - 1)} disabled={mealsPage <= 1}>Prev</button>
+            <button style={btnSmall} onClick={() => loadMeals(mealsPage + 1)} disabled={mealsPage >= mealsPages}>Next</button>
+          </div>
         </div>
-      )}
-    </div>
-
-    {/* ADD MEAL */}
-    <div style={card}>
-      <h2>Add Meal</h2>
-      <input
-        style={input}
-        placeholder="Meal name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
-      <input
-        style={input}
-        placeholder="Ingredients (comma separated)"
-        value={ingredients}
-        onChange={(e) => setIngredients(e.target.value)}
-      />
-
-      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-        <button style={btn} onClick={addMeal}>Add Meal</button>
-        <input type="file" onChange={uploadImage} />
-      </div>
-    </div>
-
-    {/* QUICK PICK */}
-    <div style={card}>
-      <h2>Quick Pick</h2>
-      <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
-        <button style={btn} onClick={getTodayMeal}>🍽 Home</button>
-        <button style={btn} onClick={getTakeout}>🍔 Takeout</button>
       </div>
 
-      {today && (
-        <div style={resultBox}>
-          <strong>At Home:</strong>
-          <h3>{today.name}</h3>
-        </div>
-      )}
-
-      {takeout && (
-        <div style={resultBox}>
-          <strong>Takeout:</strong>
-          <h3>{takeout.name}</h3>
-          <p style={{ opacity: 0.7 }}>{takeout.type}</p>
-        </div>
-      )}
     </div>
-
-    {/* ALL MEALS */}
-    <div style={card}>
-      <h2>All Meals</h2>
-      <ul style={{ listStyle: "none", padding: 0 }}>
-        {meals.map((meal) => (
-          <li key={meal.id} style={listItem}>
-            <span>{meal.name}</span>
-            <div>
-              <button style={btnSmall} onClick={() => editMeal(meal)}>✏️</button>
-              <button style={btnSmall} onClick={() => deleteMeal(meal.id)}>❌</button>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </div>
-
-  </div>
-);
+  );
 }

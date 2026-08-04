@@ -5,8 +5,23 @@ a = Analysis(
     ['app.py'],
     pathex=[],
     binaries=[],
-    datas=[('../frontend/dist', 'frontend/dist')],
-    hiddenimports=[],
+    datas=[('../frontend/dist', 'frontend/dist'), ('migrations', 'migrations')],
+    # §4.1 modularization: explicitly pull in the refactored packages so the
+    # single-file build never tree-shrinks them out (routes register themselves
+    # here via blueprint imports, which PyInstaller's tracer normally follows).
+    hiddenimports=[
+        'config',
+        'models',
+        'utils',
+        'routes',
+        'routes.meals',
+        'routes.menu',
+        'routes.grocery',
+        'routes.data',
+        'services',
+        'services.menu_service',
+        'services.grocery_service',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

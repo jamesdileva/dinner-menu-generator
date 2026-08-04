@@ -1,0 +1,1120 @@
+# Audit: Dinner Menu Generator
+
+**Date:** 2026-07-24  
+**Auditor:** opencode  
+**Scope:** Full codebase (backend + frontend)  
+**Overall Health:** Functional but needs significant cleanup and hardening before production use
+
+---
+
+## Table of Contents
+
+1. [Project Overview](#1-project-overview)
+2. [Architecture Summary](#2-architecture-summary)
+3. [Critical Bugs](#3-critical-bugs)
+4. [High-Priority Issues](#4-high-priority-issues)
+5. [Medium-Priority Issues](#5-medium-priority-issues)
+6. [Low-Priority / Polish Issues](#6-low-priority--polish-issues)
+7. [Dead Code & Scaffolding](#7-dead-code--scaffolding)
+8. [Security Concerns](#8-security-concerns)
+9. [Performance & Scalability](#9-performance--scalability)
+10. [Code Quality & Conventions](#10-code-quality--conventions)
+11. [Testing](#11-testing)
+12. [Documentation](#12-documentation)
+13. [High-Value Features to Add](#13-high-value-features-to-add)
+14. [Quick Wins (1-2 hour fixes)](#14-quick-wins-1-2-hour-fixes)
+15. [Recommended Roadmap](#15-recommended-roadmap)
+
+---
+
+## 1. Project Overview
+
+**Dinner Menu Generator** is a local-first desktop app (Flask backend + React/Vite frontend, packaged with PyInstaller) that lets users:
+
+- Maintain a database of meals (name + ingredients)
+- Generate random weekly menus (7 days, no repeats)
+- Reroll individual days
+- Generate categorized grocery lists from the weekly menu
+- Upload images of menus (OCR via Tesseract + OpenCV) to auto-import meals
+- Quick-pick: random home meal or random takeout spot
+
+**Tech Stack:**
+- Backend: Python / Flask / SQLAlchemy / SQLite
+- Frontend: React 19 / Vite
+- OCR: Tesseract + OpenCV + Pillow
+- Packaging: PyInstaller (single-file executable)
+
+---
+
+## 2. Architecture Summary
+
+```
+dinner-menu-generator/
+├── backend/
+│   ├── app.py          # 856-line monolith: routes, models, services, utils all in one file
+│   ├── config.py       # EMPTY
+│   ├── models.py       # EMPTY
+│   ├── app.spec        # PyInstaller spec
+│   ├── backup.json     # Sample data (60+ weekly menus)
+│   ├── routes/         # ALL EMPTY (meals.py, menu.py, grocery.py)
+│   ├── services/       # ALL EMPTY (menu_service.py, grocery_service.py)
+│   ├── instance/       # SQLite DB (gitignored)
+│   └── dist/           # Compiled exe (gitignored)
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx     # 315-line single-component app (all logic + UI)
+│   │   ├── api.js      # EMPTY
+│   │   ├── main.jsx    # Standard Vite entry
+│   │   ├── components/ # ALL EMPTY (AddMeal.jsx, GroceryList.jsx, Menu.jsx)
+│   │   └── styles.css  # EMPTY
+│   ├── index.html
+│   ├── package.json
+│   ├── vite.config.js
+│   └── dist/           # Built assets (gitignored)
+├── requirements.txt
+├── example.env
+├── README.md
+└── .gitignore
+```
+
+**Key architectural observation:** The project was clearly mid-refactor. Empty `routes/`, `services/`, `config.py`, `models.py`, `components/`, and `api.js` files suggest an intent to split the monolith into modular files, but the work was never completed. All logic still lives in `backend/app.py` and `frontend/src/App.jsx`.
+
+---
+
+## 3. Critical Bugs
+
+### 3.1 Duplicate `loadMenu` function in App.jsx (frontend/src/App.jsx:66-83)
+
+- [x] **FIXED 2026-08-03** — removed the shadowed first declaration; single `loadMenu` with grocery reset remains.
+
+`loadMenu` is declared **twice** — once at line 66 (without grocery reset) and once at line 78 (with grocery reset). In JavaScript, the second declaration shadows the first, making the first one dead code. While this doesn't cause a runtime error, it's confusing and the first version's behavior is lost.
+
+**Fix:** Remove the duplicate at lines 66-70.
+
+### 3.2 `reroll_day` crashes with only 1 meal (backend/app.py:503-529)
+
+- [x] **FIXED 2026-08-03** — returns 400 `"No other meals available"` when no alternatives exist.
+
+If there is only 1 meal in the database and it's the current meal for the requested day, `available` will be an empty list, and `random.choice(available)` will raise `IndexError: Cannot choose from an empty sequence`.
+
+```python
+available = [m for m in meals if m.name != current_meal_name]
+new_meal = random.choice(available)  # CRASHES if available is empty
+```
+
+**Fix:** Add a guard: if `len(available) == 0`, return an error or allow the same meal.
+
+### 3.3 `decide` endpoint crashes with no meals (backend/app.py:466-478)
+
+- [x] **FIXED 2026-08-03** — returns 400 `"No meals available"` when the DB is empty.
+
+When `choice == "home"` and `Meal.query.all()` returns an empty list, `random.choice(meals)` raises `IndexError`.
+
+```python
+meals = Meal.query.all()
+meal = random.choice(meals)  # CRASHES if meals is empty
+```
+
+**Fix:** Add a check: `if not meals: return jsonify({"error": "No meals available"}), 400`.
+
+### 3.4 Hardcoded Tesseract path breaks on non-Windows (backend/app.py:25)
+
+- [x] **FIXED 2026-08-03** — now uses `shutil.which("tesseract")` for cross-platform support.
+
+```python
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+```
+
+This is hardcoded to a Windows path. On macOS or Linux, Tesseract is typically at `/usr/local/bin/tesseract` or `/usr/bin/tesseract`, and this line will cause OCR to fail silently (or crash) on those platforms.
+
+**Fix:** Detect the platform or let Tesseract use its default PATH resolution:
+```python
+import shutil
+tesseract_path = shutil.which("tesseract")
+if tesseract_path:
+    pytesseract.pytesseract.tesseract_cmd = tesseract_path
+```
+
+### 3.5 Frontend fetches hardcoded to `localhost:5000` (frontend/src/App.jsx)
+
+- [x] **FIXED 2026-08-03** — relative URLs everywhere + Vite dev proxy (`vite.config.js`) for all API paths.
+
+Every API call uses `http://localhost:5000/...`. This works in dev mode but breaks when:
+- The app is packaged as a desktop exe (the Flask server runs on a random port or embedded)
+- The port is changed
+- The app is deployed behind a reverse proxy
+
+**Fix:** Use relative URLs (e.g., `/menu/week`) or read the base URL from an environment variable.
+
+### 3.6 No input validation on `/meal` POST (backend/app.py:618-647)
+
+- [x] **FIXED 2026-08-03** — uses `data.get("name")` with non-empty validation; returns 400 on missing/invalid name.
+
+```python
+raw_name = data["name"]  # KeyError if "name" is missing
+```
+
+If the request body doesn't contain `name`, this raises an unhandled `KeyError` and returns a 500 error. Same issue with `/import` (line 723: `data["meals"]`).
+
+**Fix:** Use `data.get("name")` with validation, or use a schema validation library like Pydantic or marshmallow.
+
+### 3.7 `import_data` doesn't check for duplicates (backend/app.py:721-736)
+
+- [x] **FIXED 2026-08-03** — case-insensitive duplicate skip in `/import`; response now reports `added` count.
+
+The `/import` endpoint blindly adds all meals and menus without checking for duplicates, unlike `/upload-menu` which does check. This can lead to duplicate meals in the database.
+
+**Fix:** Add duplicate checking similar to the `/upload-menu` endpoint.
+
+### 3.8 Grocery list quantity parsing fails on mixed numbers (backend/app.py:768-782)
+
+- [x] **FIXED 2026-08-03** — new `parse_quantity` helper handles mixed numbers (`1 1/2` → 1.5, `2 3/4` → 2.75).
+
+The regex `^([0-9\./\s]+)` matches "1 1/2" but the fraction parser only handles simple fractions like "1/2". Mixed numbers like "1 1/2" will be parsed as `float("1 1/2")` which raises `ValueError`, falling back to `qty = 1.0`.
+
+**Fix:** Parse mixed numbers properly (e.g., split on space, handle whole + fraction parts).
+
+### 3.9 `used_today` set is lost on restart (backend/app.py:455-459)
+
+- [x] **FIXED 2026-08-03** — new `UsedMeal` DB table keyed by date; picks persist across restarts, stale rows pruned.
+
+The `used_today` set is in-memory only. Restarting the app resets it, meaning the "avoid repeats" feature for `/menu/today` doesn't persist. Users could get the same meal twice in one day across restarts.
+
+**Fix:** Persist `used_today` in the database or use a timestamp-based approach.
+
+### 3.10 `current_week` global is never used (backend/app.py:27-28)
+
+- [x] **FIXED 2026-08-03** — removed the dead global; duplicate `import random` / `used_today` declarations cleaned up (§5.1).
+
+```python
+global current_week
+current_week = []
+```
+
+This variable is declared but never read or written anywhere else in the codebase. It's dead code.
+
+---
+
+## 4. High-Priority Issues
+
+### 4.1 All logic in single files (app.py: 856 lines, App.jsx: 315 lines)
+
+The backend `app.py` contains models, routes, utility functions, OCR processing, ingredient normalization, grocery list generation, and data import/export — all in one 856-line file. The frontend `App.jsx` contains all UI, state management, and API calls in one component.
+
+**Impact:** Extremely difficult to maintain, test, or extend. The empty `routes/`, `services/`, `models.py`, `config.py` files show this was the intended direction but was never completed.
+
+**Fix:** Complete the modularization:
+- Move models to `models.py`
+- Move routes to `routes/` (meals.py, menu.py, grocery.py, data.py)
+- Move services to `services/` (menu_service.py, grocery_service.py)
+- Move config to `config.py`
+- Split frontend into components
+
+- [x] **FIXED 2026-08-04** — backend split: thin `app.py` entrypoint registers 4 blueprints
+  (`routes/meals.py`, `menu.py`, `grocery.py`, `data.py`); business logic moved to
+  `services/menu_service.py` + `services/grocery_service.py`; models/config/utils centralized.
+  Frontend split: `App.jsx` → `components/{Menu,GroceryList,AddMeal}.jsx` + `api.js`.
+  Verified via Flask test client (all endpoints) + `py_compile` (10 modules) + npm lint/build.
+
+### 4.2 No error handling on fetch calls (App.jsx)
+
+- [x] **FIXED 2026-08-04** — centralised `apiFetch` helper (throws on non-2xx) + `withLoading` wrapper; global error banner + loading spinner added.
+
+None of the fetch calls in App.jsx have try/catch blocks. If the server is down, the user gets an unhandled promise rejection and no feedback. There are also no loading states.
+
+```javascript
+async function loadMenu() {
+    const res = await fetch("http://localhost:5000/menu/week");
+    const data = await res.json();
+    setMenu(data);
+}
+```
+
+**Fix:** Wrap all fetch calls in try/catch, add loading states, and handle HTTP errors (e.g., `if (!res.ok) throw new Error(...)`).
+
+### 4.3 CORS is wide open (backend/app.py:30)
+
+- [x] **FIXED 2026-08-04** — `CORS(app, origins=["http://localhost:5173"])` (prod is same-origin).
+
+```python
+CORS(app)
+```
+
+No origin restrictions. Any website can make requests to the API. While this is a local app, it's still a security concern if the app is ever exposed.
+
+**Fix:** Restrict CORS to specific origins or disable it entirely for the desktop app.
+
+### 4.4 No health check endpoint
+
+- [x] **FIXED 2026-08-04** — added `GET /health` returning `{"status": "ok"}`.
+
+- [x] **FIXED 2026-08-04** — added `GET /health` returning `{"status": "ok"}`.
+
+There's no `/health` or `/ping` endpoint. This makes it impossible to check if the server is running without hitting a real endpoint.
+
+**Fix:** Add a simple `/health` endpoint returning `{"status": "ok"}`.
+
+### 4.5 Tesseract not checked at startup
+
+- [x] **FIXED 2026-08-04** — startup warns if `tesseract` not in PATH; `/upload-menu` returns 503 with a friendly message only after file-level validations pass.
+
+If Tesseract is not installed or not in PATH, the app starts fine but crashes on any OCR request. The user gets a 500 error with no helpful message.
+
+**Fix:** Check for Tesseract at startup and log a warning, or return a helpful error message on OCR endpoints.
+
+### 4.6 No file upload validation (backend/app.py:532-616)
+
+- [x] **FIXED 2026-08-04** — validates: file present, MIME allowlist (png/jpg/jpeg), 5 MB size cap, dimension guard (4000px), and corrupt-image handling (returns 400, not 500).
+
+The `/upload-menu` endpoint:
+- Doesn't check file type (accepts any file)
+- Doesn't check file size (could be used for DoS)
+- Doesn't check image dimensions
+- Doesn't handle corrupt images gracefully
+
+**Fix:** Validate file type (e.g., check magic bytes), enforce a size limit, and handle image processing errors.
+
+### 4.7 No pagination on `/meals` (backend/app.py:679-682)
+
+- [x] **FIXED 2026-08-04** — backend `?page`/`?limit` (1–100 clamp) returning `{meals, page, limit, total, pages}`; frontend "All Meals" list is now paginated (20/page) with Prev/Next + counts.
+
+Returns all meals at once. If the database grows large, this could be slow and memory-intensive.
+
+**Fix:** Add pagination parameters (`?page=1&limit=50`).
+
+### 4.8 No database migration strategy
+
+Uses `db.create_all()` which only creates tables if they don't exist. It doesn't handle schema changes (e.g., adding a new column). If the schema changes, users would need to delete their database and lose all data.
+
+**Fix:** Use Flask-Migrate (Alembic) for proper migrations.
+
+- [x] **FIXED 2026-08-04** — added `Flask-Migrate` (+ `alembic`/`Mako` pins);
+  `Migrate(app, db, directory=<abs>)` wired in `app.py`; `migrations/` baseline generated
+  (revision `6c296b498bf1` = current schema); `app.py` startup now runs `upgrade()` with a
+  `create_all()` + `stamp("head")` fallback. PyInstaller `app.spec` + package command bundle
+  `migrations/`. **Verified:** `flask db init/migrate/stamp/upgrade/current` all run;
+  `upgrade()` against a fresh DB creates `meal`/`used_meal`/`weekly_menu` + `alembic_version`;
+  real `dinner.db` stamped at head with all 29 meals intact; test-client smoke green.
+
+### 4.9 OpenAI dependency included but unused (requirements.txt:24)
+
+- [x] **FIXED 2026-08-04** — removed `openai==2.30.0` (+ pydantic/pydantic_core graph) from `requirements.txt`.
+
+`openai==2.30.0` is in requirements.txt but is never imported or used in `app.py`. The README mentions "AI meal suggestions" as a future idea, but the dependency was included prematurely.
+
+**Fix:** Remove from requirements.txt until it's actually needed.
+
+### 4.10 psycopg2-binary included but unused (requirements.txt:29)
+
+- [x] **FIXED 2026-08-04** — removed `psycopg2-binary==2.9.11`; also removed unused `requests` (§7.3).
+
+`psycopg2-binary==2.9.11` is included for PostgreSQL, but the app uses SQLite. This is an unnecessary dependency that adds bloat to the packaged exe.
+
+**Fix:** Remove from requirements.txt.
+
+---
+
+## 5. Medium-Priority Issues
+
+### 5.1 Duplicate `import random` and `used_today` declarations (backend/app.py:4, 453, 457, 455, 459)
+
+- [x] **FIXED 2026-08-03** — duplicates removed as part of the §3 fixes.
+
+```python
+import random  # line 4
+...
+import random  # line 453
+used_today = set()  # line 455
+import random  # line 457
+used_today = set()  # line 459
+```
+
+Three `import random` statements and two `used_today` declarations. The duplicates are harmless (Python handles re-imports gracefully) but indicate sloppy code organization.
+
+### 5.2 Debug print statements in production code (backend/app.py)
+
+Numerous `print()` statements throughout the code:
+- Line 35: `print("🚀 RUNNING THIS FILE")`
+- Lines 108-109: Import path debugging
+- Lines 403-404: Frontend build path debugging
+- Line 409: Index path debugging
+- Line 557: `print("RAW OCR:", text)`
+- Line 708: `print("❌ ERROR /menu/week:", e)`
+- Line 837: `print("❌ ERROR /grocery:", e)`
+- Lines 847-849: Route listing
+
+**Fix:** Replace with proper logging using Python's `logging` module.
+
+### 5.3 No logging framework
+
+The app uses `print()` for all output. There's no structured logging, no log levels, no log file output.
+
+**Fix:** Use Python's `logging` module with appropriate levels (DEBUG, INFO, WARNING, ERROR).
+
+### 5.4 `import_file` endpoint reads from hardcoded path (backend/app.py:101-140)
+
+```python
+path = os.path.join(os.path.dirname(__file__), "backup.json")
+```
+
+The `/import-file` endpoint always reads from `backup.json` in the backend directory. There's no way to specify a different file.
+
+**Fix:** Accept a file upload or a file path parameter.
+
+### 5.5 `fix_data` endpoint is a maintenance tool exposed in production (backend/app.py:420-447)
+
+This endpoint modifies all meal data (backfills ingredients, cleans names, removes duplicates). It's a maintenance tool that should not be exposed in production.
+
+**Fix:** Either remove it, protect it with authentication, or move it to a CLI command.
+
+### 5.6 `init_db` endpoint is exposed (backend/app.py:449-452)
+
+Anyone can hit `/init-db` to create database tables. While `create_all()` is idempotent, this endpoint shouldn't be publicly accessible.
+
+**Fix:** Remove or protect this endpoint.
+
+### 5.7 No environment variable loading (backend/app.py)
+
+The app doesn't use `python-dotenv` to load `.env` files, even though it's in requirements.txt and there's a `.env` file with `OPENAI_API_KEY`.
+
+**Fix:** Add `from dotenv import load_dotenv; load_dotenv()` at the top of `app.py`.
+
+### 5.8 `normalize_ingredients` has complex, overlapping logic (backend/app.py:278-357)
+
+The function has multiple code paths that check `KEEP_TOGETHER` phrases, with some redundant checks. The logic is hard to follow and may produce unexpected results for edge cases.
+
+**Fix:** Refactor into smaller, well-named helper functions with clear logic.
+
+### 5.9 `generate_ingredients` is a simple keyword matcher (backend/app.py:142-188)
+
+The function uses a series of `if "keyword" in name` checks to guess ingredients. This doesn't scale and will miss many meal types.
+
+**Fix:** Consider a more robust approach, such as:
+- A configurable mapping file (JSON/YAML)
+- Integration with an ingredient database API
+- Machine learning model for ingredient prediction
+
+### 5.10 `categorize_ingredient` has limited coverage (backend/app.py:359-390)
+
+Only handles a small set of ingredients. Many common ingredients fall through to "Other".
+
+**Fix:** Expand the category mappings or use a more sophisticated approach.
+
+### 5.11 Grocery list doesn't handle "count" unit display properly (backend/app.py:825-827)
+
+```python
+qty_str = f"{display_qty}" if unit == "count" else f"{display_qty} {unit}"
+if unit != "count" and display_qty > 1:
+    qty_str += "s"  # re-add plural to unit if relevant
+```
+
+The pluralization logic is simplistic (just adds "s") and doesn't handle irregular plurals (e.g., "1 lb" -> "2 lbs" is correct, but "1 tomato" -> "2 tomatoes" is wrong).
+
+### 5.12 No undo/redo for meal actions
+
+Once a meal is deleted or a day is rerolled, there's no way to undo. The frontend uses `prompt()` for editing, which is not user-friendly.
+
+**Fix:** Add undo functionality or use proper modal dialogs instead of `prompt()`.
+
+### 5.13 Weekly menu stores snapshot, not reference (backend/app.py:684-705)
+
+When generating a weekly menu, the full meal dict (including ingredients) is stored as JSON. If a meal is later edited, the menu still shows the old version.
+
+**Fix:** Store only the meal ID and fetch the current meal data when displaying.
+
+### 5.14 No meal categories or tags
+
+Meals are just names with ingredients. There's no way to categorize meals (e.g., "Italian", "Mexican", "Vegetarian", "Quick", "Expensive").
+
+**Fix:** Add a `category` or `tags` field to the Meal model.
+
+### 5.15 No meal history tracking
+
+Old weekly menus are stored in the database but there's no UI to view them. The README says "Weekly menus reset as new ones are generated" but this is misleading — they're actually stored.
+
+**Fix:** Add a menu history view in the frontend.
+
+### 5.16 No way to export grocery list
+
+The grocery list can only be viewed in the app. There's no way to export it as text, PDF, or print it.
+
+**Fix:** Add an export button (text/CSV/PDF).
+
+### 5.17 No meal detail view in frontend
+
+The weekly menu shows meal names but not ingredients. Users have to go to the "All Meals" section to see ingredients.
+
+**Fix:** Add a meal detail view or tooltip showing ingredients.
+
+### 5.18 No search/filter for meals
+
+The "All Meals" list shows all meals with no search or filter functionality.
+
+**Fix:** Add a search bar and category filters.
+
+### 5.19 `clean_meal_name` typo fixes are hardcoded (backend/app.py:257-276)
+
+```python
+fixes = {
+    "Lasagnaa": "Lasagna",
+    "Taco Boowl": "Taco Bowl",
+    "Veggistir- Fry": "Veggie Stir Fry"
+}
+```
+
+This is not extensible. New typos require code changes.
+
+**Fix:** Use a more general approach (e.g., fuzzy matching, or a configurable mapping file).
+
+### 5.20 No graceful shutdown handling
+
+The Flask app doesn't handle SIGINT/SIGTERM gracefully. When packaged as an exe, closing the window might not cleanly shut down the server.
+
+**Fix:** Add signal handlers for graceful shutdown.
+
+### 5.21 No rate limiting
+
+No rate limiting on any endpoints. A malicious script could spam the API.
+
+**Fix:** Add rate limiting using Flask-Limiter.
+
+### 5.22 No CSRF protection
+
+POST/PUT/DELETE endpoints have no CSRF protection. While this is a local app, it's still a concern if the app is ever exposed.
+
+**Fix:** Add CSRF protection using Flask-WTF or similar.
+
+---
+
+## 6. Low-Priority / Polish Issues
+
+### 6.1 Emoji in code comments and strings
+
+The code uses emojis extensively in comments and print statements (e.g., `print("🚀 RUNNING THIS FILE")`, `# ✅ MODEL FIRST`, `# 🔥 convert to OpenCV format`). While this is a style choice, it can cause issues with some terminals and makes the code harder to search.
+
+### 6.2 Inconsistent code formatting
+
+The backend code has inconsistent indentation, spacing, and naming conventions. Some functions use camelCase, others use snake_case. The frontend uses inline styles exclusively instead of CSS classes.
+
+### 6.3 No `.editorconfig`
+
+No editor configuration file. Different developers may use different indentation, line endings, etc.
+
+**Fix:** Add a `.editorconfig` file.
+
+### 6.4 No pre-commit hooks
+
+No pre-commit hooks for linting, formatting, or testing.
+
+**Fix:** Add pre-commit hooks using `pre-commit` framework.
+
+### 6.5 Frontend uses inline styles exclusively
+
+All styling in `App.jsx` is done via inline style objects. This makes the code verbose and hard to maintain. There's no CSS file being imported (the `App.css` and `styles.css` files exist but `styles.css` is empty and `App.css` is from the Vite template).
+
+**Fix:** Move styles to CSS files or use a CSS-in-JS library.
+
+### 6.6 No dark mode toggle
+
+The frontend has a dark color scheme hardcoded (`#121212` background, `#1e1e1e` cards) but there's no toggle. The `index.css` has dark mode styles but they're not connected to the app.
+
+**Fix:** Add a dark/light mode toggle.
+
+### 6.7 No responsive design
+
+The frontend has a `maxWidth: "900px"` but no media queries or responsive breakpoints. It will look bad on mobile devices.
+
+**Fix:** Add responsive design with media queries.
+
+### 6.8 No favicon being used
+
+The frontend has a `favicon.svg` in `public/` but it's not referenced in `index.html`.
+
+### 6.9 `index.css` is from Vite template
+
+The `index.css` file contains Vite template styles (hero, counters, etc.) that are not used by the app. The app uses inline styles instead.
+
+### 6.10 No error boundaries in React
+
+If any component throws an error, the entire app crashes with no fallback UI.
+
+**Fix:** Add error boundaries.
+
+### 6.11 No loading states in frontend
+
+When fetching data, there's no loading indicator. The UI just appears/disappears.
+
+### 6.12 `prompt()` used for editing meals
+
+The `editMeal` function uses `window.prompt()` for input, which is not user-friendly and can't be styled.
+
+**Fix:** Use a proper modal dialog.
+
+### 6.13 No confirmation for destructive actions
+
+Deleting a meal or rerolling a day has no confirmation dialog.
+
+**Fix:** Add confirmation dialogs.
+
+### 6.14 No keyboard shortcuts
+
+No keyboard shortcuts for common actions (e.g., Enter to add a meal, Escape to cancel).
+
+### 6.15 No accessibility attributes
+
+The frontend has no ARIA labels, no semantic HTML, no keyboard navigation support.
+
+---
+
+## 7. Dead Code & Scaffolding
+
+### 7.1 Empty files (all zero bytes)
+
+| File | Intended Purpose |
+|------|-----------------|
+| `backend/config.py` | Configuration management |
+| `backend/models.py` | Database models |
+| `backend/routes/meals.py` | Meal-related routes |
+| `backend/routes/menu.py` | Menu-related routes |
+| `backend/routes/grocery.py` | Grocery list routes |
+| `backend/services/menu_service.py` | Menu generation logic |
+| `backend/services/grocery_service.py` | Grocery list logic |
+| `frontend/src/api.js` | API client |
+| `frontend/src/components/AddMeal.jsx` | Add meal form |
+| `frontend/src/components/GroceryList.jsx` | Grocery list display |
+| `frontend/src/components/Menu.jsx` | Weekly menu display |
+| `frontend/src/styles.css` | App styles |
+
+These files were created as part of a refactoring effort but were never populated. They serve as scaffolding that was never completed.
+
+### 7.2 Unused global variable
+
+`current_week` (backend/app.py:27-28) is declared but never used.
+
+### 7.3 Unused imports
+
+- [x] **FIXED 2026-08-04** — `requests` (backend/app.py:14) removed (imported but never used)
+- `json` (backend/app.py:7) — imported at top level and also inside `import_file` function (line 103)
+- `os` (backend/app.py:10) — used, but also re-imported inside `import_file` (line 104)
+- `sys` (backend/app.py:13) — used for `_MEIPASS` check
+- `webbrowser` (backend/app.py:11) — used in `open_browser()`
+- `threading` (backend/app.py:12) — used for `threading.Timer`
+- `cv2` (backend/app.py:8) — used in OCR
+- `numpy` (backend/app.py:9) — used in OCR
+- `PIL.Image` (backend/app.py:5) — used in OCR
+
+### 7.4 Build artifacts in repository
+
+- `backend/build/` — PyInstaller build artifacts
+- `backend/dist/` — Compiled executables
+- `backend/instance/dinner.db` — SQLite database (gitignored but present)
+
+These should not be in the repository. The `.gitignore` correctly ignores them, but they're present in the working directory.
+
+### 7.5 `backup.json` in repository
+
+The `backup.json` file (backend/backup.json) contains 60+ weekly menus and is used by the `/import-file` endpoint. It's sample/test data that shouldn't be in the main repository.
+
+---
+
+## 8. Security Concerns
+
+### 8.1 No authentication or authorization
+
+All endpoints are publicly accessible. The maintenance endpoints (`/fix-data`, `/init-db`, `/import-file`) have no protection.
+
+**Risk:** Anyone who can reach the server can modify or delete all data.
+
+**Fix:** Add authentication (even a simple password) for maintenance endpoints, or remove them from production builds.
+
+### 8.2 CORS is wide open (backend/app.py:30)
+
+```python
+CORS(app)
+```
+
+**Risk:** Any website can make cross-origin requests to the API.
+
+**Fix:** Restrict to specific origins or disable CORS for the desktop app.
+
+### 8.3 No CSRF protection
+
+POST/PUT/DELETE endpoints have no CSRF tokens.
+
+**Risk:** If the app is ever exposed to the internet, a malicious website could trick users into making unwanted changes.
+
+**Fix:** Add CSRF protection using Flask-WTF or similar.
+
+### 8.4 No rate limiting
+
+**Risk:** The API can be spammed, potentially causing denial of service.
+
+**Fix:** Add rate limiting using Flask-Limiter.
+
+### 8.5 Secrets in `.env` file
+
+The `.env` file contains `OPENAI_API_KEY=your_key_here` (a placeholder). If a real key is added, it should never be committed to the repository. The `.gitignore` correctly ignores `.env` files, but the `example.env` file is in the repository with a placeholder.
+
+**Risk:** Low (placeholder is not a real key), but the pattern should be followed.
+
+### 8.6 No input sanitization
+
+User input (meal names, ingredients) is stored in the database without sanitization. While SQLAlchemy parameterizes queries (preventing SQL injection), the stored data could contain XSS payloads if displayed in the frontend without escaping.
+
+**Risk:** Stored XSS if the frontend doesn't properly escape data.
+
+**Fix:** Sanitize input on the backend and ensure the frontend escapes all user-generated content.
+
+### 8.7 Debug mode is off but no error handling
+
+`app.run(debug=False)` is correct for production, but there's no custom error handler. Unhandled exceptions return a generic 500 error with the exception message, which could leak sensitive information.
+
+**Fix:** Add custom error handlers that return generic error messages in production.
+
+---
+
+## 9. Performance & Scalability
+
+### 9.1 No database indexing
+
+The `Meal` model has no indexes beyond the primary key. Queries like `Meal.query.filter(db.func.lower(Meal.name) == name_lower)` could be slow with large datasets.
+
+**Fix:** Add indexes on frequently queried columns (e.g., `name`).
+
+### 9.2 No pagination on list endpoints
+
+The `/meals` endpoint returns all meals at once. With a large database, this could be slow.
+
+**Fix:** Add pagination.
+
+### 9.3 No caching
+
+No caching is used anywhere. Repeated requests for the same data (e.g., `/meals`) hit the database every time.
+
+**Fix:** Add caching using Flask-Caching.
+
+### 9.4 OCR processing is synchronous
+
+The `/upload-menu` endpoint processes images synchronously. Large images or many uploads could block the server.
+
+**Fix:** Use a task queue (e.g., Celery) for OCR processing.
+
+### 9.5 No connection pooling
+
+SQLAlchemy uses a single connection by default. With concurrent requests, this could be a bottleneck.
+
+**Fix:** Configure connection pooling in SQLAlchemy.
+
+### 9.6 Weekly menu generation uses `random.sample`
+
+`random.sample(meals, 7)` loads all meals into memory and samples from them. With a very large database, this could be slow.
+
+**Fix:** Use a database-level random query (e.g., `ORDER BY RANDOM() LIMIT 7`).
+
+---
+
+## 10. Code Quality & Conventions
+
+### 10.1 No code style guide for Python
+
+There's no `pyproject.toml`, `setup.cfg`, or `.flake8` file. No `black`, `isort`, or `flake8` configuration.
+
+**Fix:** Add `pyproject.toml` with formatting and linting configuration.
+
+### 10.2 No code style guide for JavaScript
+
+The `eslint.config.js` exists but the rules are minimal. There's no `prettier` configuration.
+
+**Fix:** Add Prettier and expand ESLint rules.
+
+### 10.3 Inconsistent naming conventions
+
+- Backend: Mix of snake_case (Python convention) and some camelCase
+- Frontend: Mix of camelCase (JavaScript convention) and some PascalCase for components
+- Database: `WeeklyMenu` (PascalCase), `meal.name` (snake_case)
+
+### 10.4 No type hints in Python
+
+The backend code has no type hints, making it harder to understand and maintain.
+
+**Fix:** Add type hints to all functions.
+
+### 10.5 No docstrings
+
+No function has a docstring. The code relies on inline comments (often emoji-prefixed) for documentation.
+
+**Fix:** Add docstrings to all public functions.
+
+### 10.6 Inline styles in frontend
+
+All styles are inline objects in `App.jsx`. This makes the code verbose and hard to maintain.
+
+**Fix:** Move styles to CSS files or use a CSS-in-JS library.
+
+### 10.7 Emoji in comments
+
+While a style choice, the extensive use of emoji in comments (e.g., `# 🔥 convert to OpenCV format`, `# ✅ check duplicate`) makes the code harder to search and can cause issues in some environments.
+
+### 10.8 Duplicate code patterns
+
+- `import random` appears 3 times
+- `used_today = set()` appears 2 times
+- `loadMenu` function is duplicated in frontend
+- `normalize_ingredients` and `merge_ingredient` have overlapping logic
+
+### 10.9 No constants file
+
+Magic strings and numbers are scattered throughout the code (e.g., day names, category names, OCR config strings).
+
+**Fix:** Extract constants into a separate file.
+
+---
+
+## 11. Testing
+
+### 11.1 No tests exist
+
+There are zero test files in the entire codebase. No `tests/` directory, no `test_*.py` files, no `*.test.jsx` files.
+
+**Risk:** Any change could introduce regressions without detection.
+
+**Fix:** Add tests for:
+- Backend: API endpoints, utility functions (ingredient normalization, grocery list generation, OCR filtering)
+- Frontend: Component rendering, user interactions
+
+### 11.2 No test framework configured
+
+No `pytest`, `unittest`, `jest`, or `vitest` configuration.
+
+**Fix:** Add `pytest` for backend and `vitest` for frontend.
+
+### 11.3 No CI/CD pipeline
+
+No GitHub Actions, GitLab CI, or other CI/CD configuration.
+
+**Fix:** Add a CI pipeline that runs tests and linting on every push.
+
+---
+
+## 12. Documentation
+
+### 12.1 README is incomplete
+
+The README has:
+- A "Getting Started" section that's cut off (no actual setup instructions)
+- No API documentation
+- No explanation of the data model
+- No troubleshooting section
+- No contribution guidelines
+
+**Fix:** Complete the README with:
+- Full setup instructions (backend + frontend)
+- API endpoint documentation
+- Data model description
+- Troubleshooting guide
+- Contribution guidelines
+
+### 12.2 No API documentation
+
+There's no OpenAPI/Swagger spec, no Postman collection, no API documentation.
+
+**Fix:** Add an OpenAPI spec or use `flask-smorest` for auto-generated API docs.
+
+### 12.3 No CONTRIBUTING.md
+
+No contribution guidelines.
+
+**Fix:** Add a `CONTRIBUTING.md` file.
+
+### 12.4 No LICENSE file
+
+The README says "MIT (or whatever you want)" but there's no actual LICENSE file.
+
+**Fix:** Add an MIT LICENSE file.
+
+### 12.5 No CHANGELOG
+
+No changelog to track changes between versions.
+
+**Fix:** Add a `CHANGELOG.md` file.
+
+### 12.6 No architecture documentation
+
+No diagrams, no architecture decision records (ADRs), no explanation of how the components interact.
+
+**Fix:** Add architecture documentation.
+
+### 12.7 `example.env` is minimal
+
+Only contains `OPENAI_API_KEY` and `DATABASE_URL`, but the app doesn't use either of these.
+
+**Fix:** Update `example.env` to reflect actual configuration needs.
+
+### 12.8 No AGENTS.md or similar
+
+No file documenting how to work with the codebase for AI assistants or new developers.
+
+**Fix:** Add an `AGENTS.md` or `CLAUDE.md` file.
+
+---
+
+## 13. High-Value Features to Add
+
+### 13.1 Meal Categories / Tags
+
+**Value:** High | **Effort:** Medium
+
+Allow users to tag meals with categories (e.g., "Italian", "Mexican", "Vegetarian", "Quick", "Comfort Food"). This enables:
+- Filtering meals by category
+- Generating menus with category diversity (e.g., "at least one vegetarian meal per week")
+- Better meal organization
+
+**Implementation:** Add a `category` or `tags` field to the Meal model, add a category filter in the frontend.
+
+### 13.2 Meal History
+
+**Value:** High | **Effort:** Low
+
+Show past weekly menus so users can revisit old plans or avoid repeating meals too soon.
+
+**Implementation:** Add a "Menu History" view in the frontend that fetches all `WeeklyMenu` records.
+
+### 13.3 Grocery List Checkoff
+
+**Value:** High | **Effort:** Low
+
+Allow users to check off items as they shop. This is a core use case for a grocery list app.
+
+**Implementation:** Add a `purchased` boolean to grocery list items, add checkboxes in the frontend.
+
+### 13.4 Meal Detail View
+
+**Value:** High | **Effort:** Low
+
+Show ingredients and other details when viewing a meal in the weekly menu, without navigating to the "All Meals" section.
+
+**Implementation:** Add a modal or expandable section in the menu view showing meal details.
+
+### 13.5 Search & Filter Meals
+
+**Value:** High | **Effort:** Low
+
+As the meal database grows, finding specific meals becomes difficult.
+
+**Implementation:** Add a search bar and category filters to the "All Meals" section.
+
+### 13.6 Dietary Preferences / Restrictions
+
+**Value:** High | **Effort:** Medium
+
+Allow users to mark meals as vegetarian, vegan, gluten-free, etc., and filter menus accordingly.
+
+**Implementation:** Add dietary tags to meals, add preference settings.
+
+### 13.7 Meal Ratings & Favorites
+
+**Value:** Medium | **Effort:** Medium
+
+Let users rate meals and prioritize favorites when generating menus.
+
+**Implementation:** Add a `rating` field to Meal, add a "favorites" filter.
+
+### 13.8 Export Grocery List
+
+**Value:** Medium | **Effort:** Low
+
+Export the grocery list as text, CSV, or PDF for printing or sharing.
+
+**Implementation:** Add an export button that formats the grocery list as text/CSV.
+
+### 13.9 Custom Weekly Menu Days
+
+**Value:** Medium | **Effort:** Low
+
+Allow users to choose which days to plan for (e.g., weekdays only, or a custom set of days).
+
+**Implementation:** Add a day selector before generating the menu.
+
+### 13.10 Meal Prep Notes
+
+**Value:** Medium | **Effort:** Low
+
+Allow users to add prep instructions or notes to meals (e.g., "marinate overnight", "pre-cook rice").
+
+**Implementation:** Add a `notes` field to Meal, display in meal detail view.
+
+### 13.11 Shopping List Category Customization
+
+**Value:** Medium | **Effort:** Medium
+
+Let users customize which ingredients go in which category, or add custom categories.
+
+**Implementation:** Add a category management UI, store custom categories in the database.
+
+### 13.12 Meal Photos
+
+**Value:** Medium | **Effort:** Medium
+
+Allow users to add photos to meals for visual reference.
+
+**Implementation:** Add an image upload field to Meal, store images as files or base64.
+
+### 13.13 Dark Mode Toggle
+
+**Value:** Low | **Effort:** Low
+
+The frontend already has a dark color scheme; just add a toggle.
+
+**Implementation:** Add a toggle button that switches CSS classes.
+
+### 13.14 Mobile-Responsive Design
+
+**Value:** Medium | **Effort:** Medium
+
+The frontend is not responsive. Add media queries for mobile devices.
+
+**Implementation:** Add responsive CSS with media queries.
+
+### 13.15 Data Backup Automation
+
+**Value:** Medium | **Effort:** Low
+
+Automatically back up the database to a JSON file on a schedule or on exit.
+
+**Implementation:** Add a backup endpoint, schedule it with a background thread.
+
+### 13.16 Undo/Redo for Actions
+
+**Value:** Medium | **Effort:** Medium
+
+Allow users to undo meal deletions, rerolls, and other actions.
+
+**Implementation:** Add an action history stack, add undo button.
+
+### 13.17 Meal Planning Calendar View
+
+**Value:** Medium | **Effort:** Medium
+
+Show the weekly menu in a calendar format instead of a list.
+
+**Implementation:** Add a calendar component to the frontend.
+
+### 13.18 Nutrition Tracking
+
+**Value:** Low | **Effort:** High
+
+Track nutrition information for meals and the weekly menu.
+
+**Implementation:** Integrate with a nutrition API (e.g., Spoonacular, Edamam).
+
+### 13.19 Cloud Sync
+
+**Value:** Low | **Effort:** High
+
+Sync data across devices using a cloud backend.
+
+**Implementation:** Add a sync endpoint, implement conflict resolution.
+
+### 13.20 AI Meal Suggestions
+
+**Value:** Low | **Effort:** High
+
+Use AI (OpenAI API) to suggest meals based on ingredients on hand, dietary preferences, or past ratings.
+
+**Implementation:** Integrate with OpenAI API, add a "Suggest Meals" button.
+
+---
+
+## 14. Quick Wins (1-2 hour fixes)
+
+These are high-impact, low-effort fixes that should be done first:
+
+1. **Remove duplicate `loadMenu` function** in App.jsx (lines 66-70)
+2. **Add guard for empty meals in `reroll_day`** — return error if only 1 meal exists
+3. **Add guard for empty meals in `decide`** — return error if no meals exist
+4. **Fix hardcoded Tesseract path** — use `shutil.which("tesseract")` for cross-platform support
+5. **Replace hardcoded API URLs** in frontend with relative URLs
+6. **Add try/catch to all frontend fetch calls** with error feedback
+7. **Remove duplicate `import random`** statements in app.py
+8. **Remove unused `current_week` global** variable
+9. **Remove unused dependencies** from requirements.txt (`openai`, `psycopg2-binary`)
+10. **Add `/health` endpoint** for monitoring
+11. **Add input validation** to `/meal` POST endpoint
+12. **Add confirmation dialog** for meal deletion
+13. **Add loading states** to frontend fetch calls
+14. **Replace `prompt()` with a proper modal** for meal editing
+15. **Add a LICENSE file** (MIT)
+16. **Remove debug print statements** or convert to proper logging
+17. **Add `.editorconfig`** for consistent formatting
+18. **Fix `import_file` to accept a file path parameter** instead of hardcoded path
+
+---
+
+## 15. Recommended Roadmap
+
+### Phase 1: Stabilize (1-2 weeks)
+- Fix all critical bugs (Section 3)
+- Add error handling to frontend fetch calls
+- Add input validation to backend endpoints
+- Fix cross-platform Tesseract path
+- Remove unused dependencies
+- Add health check endpoint
+- Add basic logging
+
+### Phase 2: Refactor (2-3 weeks)
+- Complete the modularization (move code from app.py to routes/, services/, models.py, config.py)
+- Split frontend into components
+- Add type hints to Python code
+- Add proper logging framework
+- Add database migrations (Flask-Migrate)
+- Add rate limiting
+- Add CORS restrictions
+
+### Phase 3: Test & Document (1-2 weeks)
+- Add test framework (pytest + vitest)
+- Write tests for backend API and utility functions
+- Write tests for frontend components
+- Add CI/CD pipeline
+- Complete README with API docs
+- Add CONTRIBUTING.md and LICENSE
+- Add architecture documentation
+
+### Phase 4: Enhance (Ongoing)
+- Add meal categories/tags
+- Add meal history view
+- Add grocery list checkoff
+- Add search/filter for meals
+- Add meal detail view
+- Add dark mode toggle
+- Add responsive design
+- Add export grocery list feature
+
+### Phase 5: Future (Long-term)
+- Nutrition tracking
+- Cloud sync
+- AI meal suggestions
+- Mobile app
+- Meal photos
+
+---
+
+## Summary
+
+The Dinner Menu Generator is a functional but rough-around-the-edges application. The core features work, but the codebase has significant issues:
+
+- **3 critical bugs** that can crash the app
+- **10+ high-priority issues** including no error handling, security concerns, and no testing
+- **20+ medium-priority issues** including code quality, performance, and maintainability problems
+- **12 empty scaffold files** showing an incomplete refactoring effort
+- **No tests, no CI/CD, minimal documentation**
+
+The project would benefit from a structured refactoring effort, starting with the critical bug fixes and error handling, followed by completing the modularization that was started but never finished.
+
+The most impactful improvements would be:
+1. Fix the 3 critical bugs
+2. Add error handling to frontend fetch calls
+3. Complete the modularization (routes, services, models)
+4. Add tests
+5. Add meal categories/tags (high-value feature)
+
+The codebase shows clear intent to be well-structured (the empty route/service/model files prove this), but the execution was left incomplete. With focused effort, this could be a solid, maintainable application.
