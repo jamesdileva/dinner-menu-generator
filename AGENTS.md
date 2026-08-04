@@ -193,9 +193,10 @@ a meal after a menu is generated will **not** retroactively update past menus.
 > pagination incl. frontend), §4.8 (Flask-Migrate), §4.9/§4.10 (unused deps removed),
 > §5.4 (`/import-file` accepts `?path=`/upload or legacy `backup.json`), and §5.5/§5.6/§8.1
 > (`/fix-data` and `/init-db` moved to Flask CLI commands; `/import-file` kept as a
-> non-destructive import feature). Remaining:
+> non-destructive import feature), §5.11 (grocery count-item pluralization — irregulars
+> like tomato→tomatoes, mass nouns left alone, regular suffix rules).
+> Remaining:
 >
-> - **§5.11** grocery unit pluralization is simplistic (`"2 lbs"` ok, `"2 tomatoes"` wrong).
 > - §8.3 CSRF protection (POST/PUT/DELETE have no tokens)
 > - §8.4 rate limiting
 > - §8.6 input sanitization

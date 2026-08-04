@@ -357,3 +357,50 @@ def categorize_ingredient(item):
         return "Grains"
 
     return "Other"
+
+
+# --- Grocery display pluralization (audit §5.11) ---------------------------
+# `normalize_ingredients` stores ingredients in singular lowercase form, so the grocery
+# list has to pluralize again for display. The old code only ever appended "s" to units
+# (lb->lbs, fine) but left count items singular ("Tomato (2)"). These fix the count
+# items: true irregulars, mass/collective nouns (never pluralized), and regular suffixes.
+MASS_NOUNS = {
+    "cheese", "rice", "bread", "milk", "butter", "flour", "dough",
+    "lettuce", "spinach", "garlic", "soup", "sauce", "ketchup",
+    "syrup", "oil", "salt", "sugar", "water", "pepper",
+}
+
+IRREGULAR_PLURALS = {
+    "tomato": "tomatoes",
+    "potato": "potatoes",
+}
+
+
+def pluralize_word(word):
+    """Return the plural form of a singular grocery item word (audit §5.11)."""
+    if not word:
+        return word
+
+    lower = word.lower()
+
+    # mass / collective nouns stay the same
+    if lower in MASS_NOUNS:
+        return word
+
+    # true irregulars (tomato -> tomatoes, potato -> potatoes)
+    if lower in IRREGULAR_PLURALS:
+        return IRREGULAR_PLURALS[lower]
+
+    # consonant + sh/ch/x/z/s -> +es (radish -> radishes, peach -> peaches)
+    if lower.endswith(("sh", "ch", "x", "z", "s")):
+        return word + "es"
+
+    # consonant + y -> ies (celery -> celeries)
+    if lower.endswith("y") and len(lower) > 1 and lower[-2] not in "aeiou":
+        return word[:-1] + "ies"
+
+    # consonant + o -> oes (tomatoes/potatoes handled above; catch others like "hero")
+    if lower.endswith("o") and len(lower) > 1 and lower[-2] not in "aeiou":
+        return word + "es"
+
+    return word + "s"

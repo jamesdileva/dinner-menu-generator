@@ -7,7 +7,7 @@ Ports the aggregation/quantity-parsing/categorisation that lived inline in the
 import re
 
 from models import WeeklyMenu
-from utils import INGREDIENT_MAP, parse_quantity, categorize_ingredient
+from utils import INGREDIENT_MAP, parse_quantity, categorize_ingredient, pluralize_word
 
 
 # common units to intercept while parsing ingredient strings
@@ -84,13 +84,20 @@ def build_grocery_list():
         for unit, total_qty in units.items():
             display_qty = int(total_qty) if total_qty.is_integer() else round(total_qty, 2)
 
-            # clean up unit presentation
-            qty_str = f"{display_qty}" if unit == "count" else f"{display_qty} {unit}"
-            if unit != "count" and display_qty > 1:
-                qty_str += "s"  # re-add plural to unit if relevant
+            if unit == "count":
+                # §5.11: pluralize the *item name* when more than one
+                # (e.g. "tomato" -> "Tomatoes (2)"); mass nouns stay unchanged.
+                label = pluralize_word(item) if display_qty != 1 else item
+                item_display = label.title()
+                qty_str = f"{display_qty}"
+            else:
+                item_display = item.title()
+                qty_str = f"{display_qty} {unit}"
+                if display_qty > 1:
+                    qty_str += "s"  # pluralize the unit (lb -> lbs, can -> cans, ...)
 
             grouped[category].append({
-                "item": item.title(),
+                "item": item_display,
                 "qty": qty_str
             })
 

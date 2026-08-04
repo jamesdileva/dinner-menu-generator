@@ -426,6 +426,13 @@ if unit != "count" and display_qty > 1:
 
 The pluralization logic is simplistic (just adds "s") and doesn't handle irregular plurals (e.g., "1 lb" -> "2 lbs" is correct, but "1 tomato" -> "2 tomatoes" is wrong).
 
+- [x] **FIXED 2026-08-04** — count-unit items now pluralize the *item name* (not just append "s"
+  to a unit) via `pluralize_word()` in `utils.py` (irregulars: tomato→tomatoes,
+  potato→potatoes; mass nouns left unchanged: cheese/rice/pepper; regular suffix rules:
+  radish→radishes, y→ies, o→oes, +s). Unit pluralization (lb→lbs, can→cans) is unchanged.
+  **Verified:** all pluralize_word cases + end-to-end `build_grocery_list` on a temp DB
+  renders `Tomatoes 8`, `Potato 1`, `Cheese 2`, `Beef 2 lbs`.
+
 ### 5.12 No undo/redo for meal actions
 
 Once a meal is deleted or a day is rerolled, there's no way to undo. The frontend uses `prompt()` for editing, which is not user-friendly.
