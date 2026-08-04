@@ -142,7 +142,7 @@ python -m PyInstaller --noconfirm --onefile --windowed \
 | GET    | `/grocery`          | Generate a categorized grocery list from last menu  |
 | GET    | `/export`           | Export all meals and menus as JSON                  |
 | POST   | `/import`           | Import meals and menus from JSON body               |
-| GET    | `/import-file`      | Import from hardcoded `backup.json`                 |
+| GET,POST| `/import-file`      | Import from `?path=<file>`, a multipart upload, or legacy `backup.json` (§5.4) |
 
 ## Data Model
 

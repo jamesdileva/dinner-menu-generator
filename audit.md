@@ -361,6 +361,14 @@ The `/import-file` endpoint always reads from `backup.json` in the backend direc
 
 **Fix:** Accept a file upload or a file path parameter.
 
+- [x] **FIXED 2026-08-04** — `/import-file` now accepts `?path=<json file>` (GET), a
+  multipart `file` upload (POST), or falls back to the legacy `backend/backup.json`.
+  Missing files return 404 JSON; invalid JSON returns 400 JSON (was an unhandled 500).
+  Ingestion logic shared (case-insensitive dedupe) with `/import` via `routes/data.py`
+  `_ingest()`. **Verified:** test-client sweep — path-param (2 meals/1 menu), legacy
+  fallback, 404 for missing file, 400 for bad JSON, multipart upload, and `/import` POST
+  all green against a throwaway temp DB; real `dinner.db` untouched.
+
 ### 5.5 `fix_data` endpoint is a maintenance tool exposed in production (backend/app.py:420-447)
 
 This endpoint modifies all meal data (backfills ingredients, cleans names, removes duplicates). It's a maintenance tool that should not be exposed in production.
