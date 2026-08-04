@@ -375,11 +375,19 @@ This endpoint modifies all meal data (backfills ingredients, cleans names, remov
 
 **Fix:** Either remove it, protect it with authentication, or move it to a CLI command.
 
+- [x] **FIXED 2026-08-04** — `fix_data` moved out of HTTP into a `flask --app app fix-data` CLI
+  command (`backend/cli.py`); the `/fix-data` route was removed. Verified the cleanse logic
+  runs on a temp DB copy (29 meals untouched on the real `dinner.db`).
+
 ### 5.6 `init_db` endpoint is exposed (backend/app.py:449-452)
 
 Anyone can hit `/init-db` to create database tables. While `create_all()` is idempotent, this endpoint shouldn't be publicly accessible.
 
 **Fix:** Remove or protect this endpoint.
+
+- [x] **FIXED 2026-08-04** — `init_db` moved to a `flask --app app init-db` CLI command
+  (`backend/cli.py`); the `/init-db` route was removed. Verified `flask init-db` runs
+  idempotently on the real `dinner.db`.
 
 ### 5.7 No environment variable loading (backend/app.py)
 
@@ -634,6 +642,12 @@ All endpoints are publicly accessible. The maintenance endpoints (`/fix-data`, `
 **Risk:** Anyone who can reach the server can modify or delete all data.
 
 **Fix:** Add authentication (even a simple password) for maintenance endpoints, or remove them from production builds.
+
+- [x] **FIXED 2026-08-04** — `/fix-data` and `/init-db` are removed from the HTTP surface
+  entirely and are now `flask --app app {fix-data|init-db}` CLI commands only, so they
+  cannot be reached by anyone who can reach the server. `/import-file` is retained as a
+  non-destructive (additive + deduping) user-facing import feature per §5.4, not a
+  maintenance operation.
 
 ### 8.2 CORS is wide open (backend/app.py:30)
 

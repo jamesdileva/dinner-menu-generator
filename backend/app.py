@@ -31,6 +31,7 @@ from routes.meals import meals_bp
 from routes.menu import menu_bp
 from routes.grocery import grocery_bp
 from routes.data import data_bp
+from cli import register_cli
 
 # --- PyInstaller-aware frontend build dir ---------------------------------
 if hasattr(sys, "_MEIPASS"):
@@ -87,6 +88,10 @@ app.register_blueprint(meals_bp)
 app.register_blueprint(menu_bp)
 app.register_blueprint(grocery_bp)
 app.register_blueprint(data_bp)
+
+# --- Maintenance CLI commands (audit §5.5/§5.6/§8.1) ---------------------
+# fix-data / init-db are CLI-only now (no longer exposed over HTTP).
+register_cli(app)
 
 print("FRONTEND_BUILD:", FRONTEND_BUILD)
 print("FILES:", os.listdir(FRONTEND_BUILD) if os.path.exists(FRONTEND_BUILD) else "MISSING")

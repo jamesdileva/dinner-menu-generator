@@ -185,17 +185,36 @@ a meal after a menu is generated will **not** retroactively update past menus.
 
 ## Known Issues (per `audit.md`)
 
-> **Status: as of 2026-08-04**, audit.md §3 critical bugs plus §4.1 (monolith split:
-> `app.py` / `App.jsx` → `routes/`, `services/`, `models.py`, `config.py`, `utils.py`,
-> `components/`), §4.2 (frontend error handling + loading states), §4.3 (CORS →
-> `localhost:5173`), §4.4 (`GET /health`), §4.5 (Tesseract check), §4.6 (upload
-> validation), §4.7 (`/meals` pagination incl. frontend), §4.9/§4.10 (unused deps
-> removed) are FIXED — see `audit.md` for `[x]` checkboxes. Remaining:
+> **Status: as of 2026-08-04**, the following audit.md issues are FIXED (see `[x]`
+> checkmarks): all §3 critical bugs; and §4.1 (monolith split: `app.py` / `App.jsx` →
+> `routes/`, `services/`, `models.py`, `config.py`, `utils.py`, `components/`), §4.2
+> (frontend error handling + loading states), §4.3 (CORS → `localhost:5173`), §4.4
+> (`GET /health`), §4.5 (Tesseract check), §4.6 (upload validation), §4.7 (`/meals`
+> pagination incl. frontend), §4.8 (Flask-Migrate), §4.9/§4.10 (unused deps removed),
+> §5.4 (`/import-file` accepts `?path=`/upload or legacy `backup.json`), and §5.5/§5.6/§8.1
+> (`/fix-data` and `/init-db` moved to Flask CLI commands; `/import-file` kept as a
+> non-destructive import feature). Remaining:
+>
+> - **§5.11** grocery unit pluralization is simplistic (`"2 lbs"` ok, `"2 tomatoes"` wrong).
+> - §8.3 CSRF protection (POST/PUT/DELETE have no tokens)
+> - §8.4 rate limiting
+> - §8.6 input sanitization
+> - (see `audit.md` §8 for details)
 
-- **§4.8** No DB migration strategy (`db.create_all` only) — adopt Flask-Migrate in a dedicated session.
-- §5.4 `import_file` still reads from a hardcoded `backup.json` path.
-- §5.5/§5.6/§8.1 maintenance endpoints (`/fix-data`, `/init-db`, `/import-file`) exposed without protection.
-- §5.11 grocery unit pluralization is simplistic (`"2 lbs"` ok, `"2 tomatoes"` wrong).
+## Maintenance CLI Commands (audit §5.5 / §5.6 / §8.1)
+
+The `/fix-data` and `/init-db` endpoints were **removed from HTTP** and are now Flask CLI
+commands only (run from `backend/`):
+
+| Command | What it does |
+|---------|--------------|
+| `flask --app app init-db` | Create tables (`db.create_all()`, idempotent) |
+| `flask --app app fix-data` | Backfill/normalise ingredients, clean names, drop duplicate meals |
+
+The frozen exe is unaffected: it provisions tables itself via `flask db upgrade` at
+startup (audit §4.8) and neither command was user-facing anyway. `/import-file` is
+intentionally kept over HTTP — per §5.4 it is the user-facing data-import feature
+(additive + deduping, non-destructive).
 
 ## Working Style
 

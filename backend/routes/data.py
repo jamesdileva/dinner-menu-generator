@@ -1,17 +1,16 @@
-"""Data import/export + maintenance routes (audit §4.1).
+"""Data import/export routes (audit §4.1 / §5.4).
 
 Blueprint: `data_bp`
   GET  /export        dump all meals + menus as JSON
   POST /import        import meals + menus from a JSON body
-  GET,POST /import-file  import from ?path=<file>, a multipart `file` upload,
-                          or the legacy `backup.json` fallback (audit §5.4)
-  GET  /fix-data      cleanse/normalise meals in place (§5.6 — unprotected, deferred)
-  GET  /init-db       create tables (§5.5 — unprotected, deferred)
+  GET,POST /import-file  import from `?path=<file>`, a multipart upload, or legacy
+                          `backup.json` (§5.4)
 
-NOTE: §5.5/§5.6/§8.1 (protecting `fix-data`/`init-db`/`import-file`) are explicitly
-deferred per audit.md; these endpoints keep their current unprotected behaviour so the
-refactor stays behaviour-preserving. `/import-file` is local-desktop only: a `?path=`
-parameter lets the trusted local user point at any existing JSON file.
+NOTE: `/fix-data` and `/init-db` were previously exposed here as HTTP routes
+(audit §5.5/§5.6/§8.1). They are now **Flask CLI commands** only (see `backend/cli.py`),
+removing them from the production HTTP surface. `/import-file` is intentionally kept as
+an HTTP endpoint: per §5.4 it is the user-facing data-import feature (additive + deduping,
+non-destructive).
 """
 
 import json
@@ -20,7 +19,6 @@ import os
 from flask import Blueprint, jsonify, request
 
 from models import Meal, WeeklyMenu, db
-from utils import generate_ingredients, normalize_ingredients, clean_meal_name
 
 data_bp = Blueprint("data_bp", __name__)
 
@@ -132,36 +130,4 @@ def import_file():
     })
 
 
-@data_bp.route("/fix-data")
-def fix_data():
-    meals = Meal.query.all()
-    seen_names = set()
-
-    for meal in meals:
-        combined = " ".join(meal.ingredients) if meal.ingredients else ""
-
-        # backfill if empty
-        if not combined.strip():
-            meal.ingredients = generate_ingredients(meal.name)
-        else:
-            meal.ingredients = normalize_ingredients(combined)
-
-        cleaned_name = clean_meal_name(meal.name)
-        normalized = cleaned_name.lower()
-
-        # remove duplicates
-        if normalized in seen_names:
-            db.session.delete(meal)
-            continue
-
-        seen_names.add(normalized)
-        meal.name = cleaned_name
-
-    db.session.commit()
-    return "Data fully cleaned!"
-
-
-@data_bp.route("/init-db")
-def init_db():
-    db.create_all()
-    return "DB initialized"
+# /fix-data and /init-db are now Flask CLI commands (see ../cli.py, audit §5.5/§5.6/8.1).
