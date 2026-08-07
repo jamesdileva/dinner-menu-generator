@@ -1120,6 +1120,37 @@ No file documenting how to work with the codebase for AI assistants or new devel
 
 ---
 
+## 13a. UI Polish & Responsive Layout Refresh (2026-08-08)
+
+> **Rationale (from user feedback):** The current single-column layout reads as vertically
+> stacked cards with duplicated inline styles, hardcoded hex colors that ignore the CSS
+> variables in `index.css`, and a grocery "Email list" `mailto:` link as the only
+> share/export affordance beyond CSV/text downloads. The user wants: (1) a tighter,
+> less-scroll-heavy presentation; (2) a real dark/light toggle; (3) an "email this
+> weekly menu" affordance (the grocery email link already exists, §13.8 pattern); and
+> (4) mobile-friendly wrapping — **not a mobile PWA**, just sensible reflow when the
+> window is narrowed on the Windows desktop.
+
+**Scope (frontend-only, no backend/DB changes):**
+
+| # | Item | Files | Effort |
+|---|------|-------|--------|
+| 1 | Extract shared `card`/`btn`/`btnSmall`/`input`/`listItem` inline objects → `.card`, `.btn`, `.btn-sm`, `.input-field`, `.list-item` CSS classes in `index.css`; remove the duplicated object literals from `App.jsx` and each component. | `App.jsx`, `Menu.jsx`, `GroceryList.jsx`, `History.jsx`, `Calendar.jsx`, `Insights.jsx`, `AddMeal.jsx`, `index.css` | Medium |
+| 2 | Replace hardcoded hexes (`#121212`, `#1e1e1e`, `#3b82f6`, `#2a2a2a`, `#333`, `#1f2937`) with the CSS variables already declared in `:root` (`--bg`, `--border`, `--accent`, `--code-bg`) so the light/dark theme in `index.css` is actually live. | `App.jsx`, `Menu.jsx`, `GroceryList.jsx`, `History.jsx`, `Calendar.jsx`, `Insights.jsx`, `AddMeal.jsx`, `index.css` | Medium |
+| 3 | Add a **dark/light toggle** (🌙/☀️ button in the header). Implementation: a `data-theme` attribute on `#root` set via `localStorage`; `index.css` reads `[data-theme="light"]` / `[data-theme="dark"]` overrides for `--bg`, `--text`, etc. Default respects `localStorage.theme || "dark"`. | `App.jsx`, `index.css` | Small |
+| 4 | **Email this menu** affordance on the `Menu` card: a `mailto:` link that builds a readable body of the 7-day plan (Mon: Lasagna — beef, cheese · Tue: Burger — beef, cheese, ...). Mirrors the existing grocery "Email list" pattern (GroceryList.jsx:107-118). Hidden until a menu exists. | `Menu.jsx` | Small |
+| 5 | **Quick Pick responsive wrap**: change the Home/Takeout button row so the two buttons wrap on narrow viewports instead of staying rigid `flex` (add `flexWrap: "wrap"` + gap). | `App.jsx` | Tiny |
+| 6 | **Past menus consolidation**: History and Calendar both call `GET /menus` and both lazy-fetch via the same `loadHistory`. Add a tab toggle ("List | Calendar") in the `App.jsx` History+Calendar region so only one card renders, cutting vertical scroll. | `App.jsx`, `History.jsx`, `Calendar.jsx` | Medium |
+
+**Non-goals:**
+- No React error boundaries (§6.10), no a11y audit (§6.15), no keyboard shortcuts (§6.14) in this pass.
+- No CSS-in-JS library, no Tailwind — stays inline-style-compatible so the existing lint/build stays green.
+- No mobile-first redesign — the app is a Windows desktop tool; we only ensure sensible reflow.
+
+**Verification:** `npm run lint` clean + `npm run build` OK before merging.
+
+---
+
 ## 13. High-Value Features to Add
 
 ### 13.1 Meal Categories / Tags
