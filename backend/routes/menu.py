@@ -30,7 +30,6 @@ menu_bp = Blueprint("menu_bp", __name__)
 logger = logging.getLogger(__name__)
 
 
-
 def _respond(result):
     """A service helper returns either a dict (success) or an (error, status) tuple."""
     if isinstance(result, tuple):
@@ -62,7 +61,7 @@ def week():
         if isinstance(result, dict):
             result = expand_menu(result)
         return _respond(result)
-    except Exception as e:
+    except Exception:
         logger.exception("ERROR /menu/week")
         return jsonify({"error": "Internal server error"}), 500
 
@@ -90,4 +89,3 @@ def menus():
 def insights_route():
     """Audit B2: last-few-weeks macro overview + deficiency flags + swap suggestions."""
     return _respond(insights())
-

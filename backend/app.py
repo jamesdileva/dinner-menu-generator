@@ -54,24 +54,23 @@ def _register_signal_handlers():
         except (ValueError, OSError):
             pass
 
-from config import Config
-from models import db
-from utils import tesseract_path
-from limiter import limiter  # audit §5.21 / §8.4 — rate limiting
-from routes.meals import meals_bp
-from routes.menu import menu_bp
-from routes.grocery import grocery_bp
-from routes.data import data_bp
-from cli import register_cli
+
+from config import Config  # noqa: E402 — must follow load_dotenv() (audit §5.7)
+from models import db  # noqa: E402 — must follow load_dotenv() (audit §5.7)
+from utils import tesseract_path  # noqa: E402
+from limiter import limiter  # noqa: E402 — rate limiting (audit §5.21 / §8.4)
+from routes.meals import meals_bp  # noqa: E402
+from routes.menu import menu_bp  # noqa: E402
+from routes.grocery import grocery_bp  # noqa: E402
+from routes.data import data_bp  # noqa: E402
+from cli import register_cli  # noqa: E402
 
 
 # --- PyInstaller-aware frontend build dir ---------------------------------
 if hasattr(sys, "_MEIPASS"):
     FRONTEND_BUILD = os.path.join(sys._MEIPASS, "frontend/dist")
 else:
-    FRONTEND_BUILD = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "../frontend/dist")
-    )
+    FRONTEND_BUILD = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/dist"))
 
 # --- OCR engine availability (audit §4.5) ---------------------------------
 if not tesseract_path:
@@ -160,7 +159,10 @@ def _handle_unhandled_exception(e):
 
 
 logger.info("Frontend build dir: %s", FRONTEND_BUILD)
-logger.info("Frontend files: %s", os.listdir(FRONTEND_BUILD) if os.path.exists(FRONTEND_BUILD) else "MISSING")
+logger.info(
+    "Frontend files: %s",
+    os.listdir(FRONTEND_BUILD) if os.path.exists(FRONTEND_BUILD) else "MISSING",
+)
 
 
 def open_browser():

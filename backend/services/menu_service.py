@@ -90,10 +90,7 @@ def list_menus():
     history reflects the current Meal rows rather than stale snapshots.
     """
     menus = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).all()
-    return [
-        {"id": m.id, "meals": expand_menu(m.meals)}
-        for m in menus
-    ]
+    return [{"id": m.id, "meals": expand_menu(m.meals)} for m in menus]
 
 
 def _resolve_meal(val):
@@ -154,10 +151,7 @@ def reroll_day(day):
     last_menu.meals[day] = new_meal.id  # §5.13 store id
     db.session.commit()
 
-    return {
-        "day": day,
-        "meal": new_meal.to_dict()
-    }
+    return {"day": day, "meal": new_meal.to_dict()}
 
 
 def set_menu_day(day, meal_dict):

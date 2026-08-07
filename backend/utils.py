@@ -18,18 +18,9 @@ if tesseract_path:
     pytesseract.pytesseract.tesseract_cmd = tesseract_path
 
 # --- Ingredient normalization tables ---------------------------------------
-IGNORE_WORDS = [
-    "mix",
-    "premade",
-    "or",
-    "white",
-    "sub",
-    "sandwich"
-]
+IGNORE_WORDS = ["mix", "premade", "or", "white", "sub", "sandwich"]
 IGNORE_WORDS.append("sauce")
-IGNORE_WORDS.extend([
-    "and"
-])
+IGNORE_WORDS.extend(["and"])
 KEEP_TOGETHER = [
     "pancake mix",
     "tomato sauce",
@@ -59,35 +50,39 @@ INGREDIENT_MAP = {
     "tri": "beef",
     "tip": "beef",
     "angelhair": "pasta",
-    "noodle": "pasta"
+    "noodle": "pasta",
 }
-INGREDIENT_MAP.update({
-    "potatoe": "potato",
-    "veggie": "vegetable",
-    "meat": "beef",
-    "roast": "pork",
-    "stew": "beef stew",
-    "green": "green chili",
-    "chili": "green chili",
-    "pancake": "pancake mix",
-})
-KEEP_TOGETHER.extend([
-    "green chili",
-    "chicken burritos",
-    "pork roast",
-    "beef tacos",
-    "veggie stir fry",
-    "angel hair pasta",
-    "pancake mix",
-    "beef stew",
-])
+INGREDIENT_MAP.update(
+    {
+        "potatoe": "potato",
+        "veggie": "vegetable",
+        "meat": "beef",
+        "roast": "pork",
+        "stew": "beef stew",
+        "green": "green chili",
+        "chili": "green chili",
+        "pancake": "pancake mix",
+    }
+)
+KEEP_TOGETHER.extend(
+    [
+        "green chili",
+        "chicken burritos",
+        "pork roast",
+        "beef tacos",
+        "veggie stir fry",
+        "angel hair pasta",
+        "pancake mix",
+        "beef stew",
+    ]
+)
 
 fast_food_spots = [
     {"name": "McDonald's", "type": "Fast Food"},
     {"name": "Chipotle", "type": "Mexican"},
     {"name": "Pizza Hut", "type": "Pizza"},
     {"name": "Subway", "type": "Sandwiches"},
-    {"name": "Chick-fil-A", "type": "Chicken"}
+    {"name": "Chick-fil-A", "type": "Chicken"},
 ]
 
 
@@ -349,31 +344,110 @@ def parse_quantity(num_str):
 # sent most items to "Other". We now substring-match on singular keywords so plurals and
 # phrases bucket correctly. Order matters: the first matching bucket wins.
 _PROTEIN_WORDS = (
-    "chicken", "turkey", "beef", "ground beef", "pork", "pork chop", "steak",
-    "hamburger", "meatball", "carne", "fish", "salmon", "tuna", "shrimp", "crab",
-    "lobster", "clam", "mussel", "oyster", "egg", "sausage", "bacon", "lamb", "duck",
+    "chicken",
+    "turkey",
+    "beef",
+    "ground beef",
+    "pork",
+    "pork chop",
+    "steak",
+    "hamburger",
+    "meatball",
+    "carne",
+    "fish",
+    "salmon",
+    "tuna",
+    "shrimp",
+    "crab",
+    "lobster",
+    "clam",
+    "mussel",
+    "oyster",
+    "egg",
+    "sausage",
+    "bacon",
+    "lamb",
+    "duck",
 )
 _PRODUCE_WORDS = (
-    "lettuce", "cabbage", "spinach", "kale", "broccoli", "mushroom", "avocado",
-    "cucumber", "celery", "carrot", "bell pepper", "squash", "zucchini", "radish",
-    "onion", "garlic", "tomato", "potato", "pepper", "lime", "lemon", "cilantro",
-    "parsley", "green bean", "corn", "bean", "sprout", "scallion", "green onion",
+    "lettuce",
+    "cabbage",
+    "spinach",
+    "kale",
+    "broccoli",
+    "mushroom",
+    "avocado",
+    "cucumber",
+    "celery",
+    "carrot",
+    "bell pepper",
+    "squash",
+    "zucchini",
+    "radish",
+    "onion",
+    "garlic",
+    "tomato",
+    "potato",
+    "pepper",
+    "lime",
+    "lemon",
+    "cilantro",
+    "parsley",
+    "green bean",
+    "corn",
+    "bean",
+    "sprout",
+    "scallion",
+    "green onion",
 )
 _DAIRY_WORDS = (
-    "milk", "cheese", "cheddar", "parmesan", "mozzarella", "ricotta", "feta",
-    "butter", "cream", "yogurt", "sour cream",
+    "milk",
+    "cheese",
+    "cheddar",
+    "parmesan",
+    "mozzarella",
+    "ricotta",
+    "feta",
+    "butter",
+    "cream",
+    "yogurt",
+    "sour cream",
 )
 _GRAIN_WORDS = (
-    "rice", "pasta", "noodle", "bread", "bun", "tortilla", "pilaf", "quinoa", "oats",
-    "flour", "cereal", "barley", "couscous", "spaghetti", "macaroni", "lasagna",
-    "penne", "fettuccine", "linguine", "rigatoni", "gnocchi",
+    "rice",
+    "pasta",
+    "noodle",
+    "bread",
+    "bun",
+    "tortilla",
+    "pilaf",
+    "quinoa",
+    "oats",
+    "flour",
+    "cereal",
+    "barley",
+    "couscous",
+    "spaghetti",
+    "macaroni",
+    "lasagna",
+    "penne",
+    "fettuccine",
+    "linguine",
+    "rigatoni",
+    "gnocchi",
 )
 
 # audit B3a — snack-y grocery items the user may add by hand (or that don't fit the
 # aisles above). Checked BEFORE Grains so "rice krispies"/"cereal bar" bucket as Snacks,
 # while plain "cereal"/"rice" still fall to Grains.
 _SNACKS_WORDS = (
-    "oreo", "cookie", "crisp", "cracker", "chip", "rice krispie", "cereal bar",
+    "oreo",
+    "cookie",
+    "crisp",
+    "cracker",
+    "chip",
+    "rice krispie",
+    "cereal bar",
 )
 
 
@@ -405,9 +479,25 @@ def categorize_ingredient(item):
 # (lb->lbs, fine) but left count items singular ("Tomato (2)"). These fix the count
 # items: true irregulars, mass/collective nouns (never pluralized), and regular suffixes.
 MASS_NOUNS = {
-    "cheese", "rice", "bread", "milk", "butter", "flour", "dough",
-    "lettuce", "spinach", "garlic", "soup", "sauce", "ketchup",
-    "syrup", "oil", "salt", "sugar", "water", "pepper",
+    "cheese",
+    "rice",
+    "bread",
+    "milk",
+    "butter",
+    "flour",
+    "dough",
+    "lettuce",
+    "spinach",
+    "garlic",
+    "soup",
+    "sauce",
+    "ketchup",
+    "syrup",
+    "oil",
+    "salt",
+    "sugar",
+    "water",
+    "pepper",
 }
 
 IRREGULAR_PLURALS = {

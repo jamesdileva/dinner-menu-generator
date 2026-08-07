@@ -54,20 +54,14 @@ def _ingest(data):
         if not name:
             continue
 
-        existing = Meal.query.filter(
-            db.func.lower(Meal.name) == name.lower()
-        ).first()
+        existing = Meal.query.filter(db.func.lower(Meal.name) == name.lower()).first()
         if existing:
             continue
 
         ingredients = normalize_ingredients(sanitize_ingredients(m.get("ingredients", [])))
         category = sanitize_text(m.get("category", ""), max_len=50)  # §5.14
 
-        db.session.add(Meal(
-            name=name,
-            ingredients=ingredients,
-            category=category or None
-        ))
+        db.session.add(Meal(name=name, ingredients=ingredients, category=category or None))
         added += 1
 
     for menu in menus:
@@ -81,10 +75,12 @@ def _ingest(data):
 def export_data():
     meals = Meal.query.all()
     weekly = WeeklyMenu.query.all()
-    return jsonify({
-        "meals": [m.to_dict() for m in meals],
-        "menus": [expand_menu(m.meals) for m in weekly]  # §5.13 expand ids -> full meals
-    })
+    return jsonify(
+        {
+            "meals": [m.to_dict() for m in meals],
+            "menus": [expand_menu(m.meals) for m in weekly],  # §5.13 expand ids -> full meals
+        }
+    )
 
 
 @data_bp.route("/import", methods=["POST"])
@@ -132,12 +128,7 @@ def import_file():
 
     added, menus = _ingest(data)
     logger.info("Imported from %s: %d meals + %d menus", source_desc, added, menus)
-    return jsonify({
-        "status": "imported",
-        "source": source_desc,
-        "meals": added,
-        "menus": menus
-    })
+    return jsonify({"status": "imported", "source": source_desc, "meals": added, "menus": menus})
 
 
 # /fix-data and /init-db are now Flask CLI commands (see ../cli.py, audit §5.5/§5.6/8.1).

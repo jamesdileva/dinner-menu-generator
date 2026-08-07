@@ -4,6 +4,7 @@ These cover the behaviours we've been building this week:
 - §4.4 health, §5.18 search/pagination, §5.14 category, §5.13 menu+grocery flow,
 - §8.3 CSRF header check, §8.7 generic 404/500 error responses,
 - §9.1 indexes (implicitly, via the queries that use them), §5.21 rate limiting.
+- B3a grocery extras + Snacks bucket, B2 /insights macro flags.
 """
 
 import pytest
@@ -56,11 +57,14 @@ def test_meal_crud_with_header(client, app):
         mid = m.id
 
     # update
-    assert client.put(
-        f"/meal/{mid}",
-        json={"name": "Cheeseburger", "ingredients": ["beef", "cheese"]},
-        headers=HDR,
-    ).status_code == 200
+    assert (
+        client.put(
+            f"/meal/{mid}",
+            json={"name": "Cheeseburger", "ingredients": ["beef", "cheese"]},
+            headers=HDR,
+        ).status_code
+        == 200
+    )
     with app.app_context():
         assert db.session.get(Meal, mid).name == "Cheeseburger"
 
@@ -110,16 +114,20 @@ def test_menu_and_grocery_flow(client, app):
     assert "Produce" in g and "Protein" in g and "Grains" in g
 
 
-@pytest.mark.slow
-def test_rate_limit_429(client):
-    # §5.21/§8.4 — default 120/min; the 121st request is rejected.
-    for _ in range(120):
-        assert client.get("/health").status_code == 200
-    assert client.get("/health").status_code == 429
+def test_categorize_snacks_bucket():
+    # §5.10 / B3a — snack items bucket as Snacks; plain cereal stays Grains.
+    from utils import categorize_ingredient
+
+    assert categorize_ingredient("oreos") == "Snacks"
+    assert categorize_ingredient("cookies") == "Snacks"
+    assert categorize_ingredient("rice krispies") == "Snacks"
+    assert categorize_ingredient("cereal bar") == "Snacks"
+    assert categorize_ingredient("cereal") == "Grains"
+    assert categorize_ingredient("rice") == "Grains"
 
 
-def test_grocery_extras_roundtrip(client):
-    # B3a — custom extras persist and fold into the categorized /grocery list.
+def test_grocery_extras_and_snacks(client):
+    # B3a — custom extras persist and fold into the categorized /grocery list + export.
     for i in range(7):
         _add(client, f"Meal {i}", ["rice", "chicken"])
     assert client.get("/menu/week").status_code == 200
@@ -135,16 +143,8 @@ def test_grocery_extras_roundtrip(client):
     assert "Snacks" in g and "Oreos" in [i["item"] for i in g["Snacks"]]  # oreos -> Snacks
     assert "Grains" in g and "Cereal" in [i["item"] for i in g["Grains"]]  # cereal -> Grains
 
-
-def test_categorize_snacks_bucket():
-    # §5.10 / B3a — snack items bucket as Snacks; plain cereal stays Grains.
-    from utils import categorize_ingredient
-    assert categorize_ingredient("oreos") == "Snacks"
-    assert categorize_ingredient("cookies") == "Snacks"
-    assert categorize_ingredient("rice krispies") == "Snacks"
-    assert categorize_ingredient("cereal bar") == "Snacks"
-    assert categorize_ingredient("cereal") == "Grains"
-    assert categorize_ingredient("rice") == "Grains"
+    txt = client.get("/grocery/export?format=text").get_data(as_text=True)
+    assert "Oreos" in txt and "Cereal" in txt and "Snacks" in txt
 
 
 def test_insights_requires_menu(client):
@@ -169,36 +169,9 @@ def test_insights_low_dairy_flag(client):
     assert any("dairy" in s.lower() for s in data["suggestions"])
 
 
-def test_categorize_snacks_bucket():
-    # §5.10 / B3a — snack-y items bucket under Snacks, including substring-over-grain cases.
-    from utils import categorize_ingredient
-    assert categorize_ingredient("oreos") == "Snacks"
-    assert categorize_ingredient("cookies") == "Snacks"
-    assert categorize_ingredient("rice krispies") == "Snacks"
-    assert categorize_ingredient("cereal bar") == "Snacks"
-    assert categorize_ingredient("cereal") == "Grains"  # plain cereal stays Grains
-    assert categorize_ingredient("rice") == "Grains"
-
-
-def test_grocery_extras_and_snacks(client):
-    # B3a — custom extras round-trip via /grocery/extras and fold into /grocery.
-    for i in range(7):
-        _add(client, f"Meal {i}", ["rice", "chicken"])
-    assert client.get("/menu/week").status_code == 200
-
-    r = client.put("/grocery/extras", json={"items": ["oreos", "cereal"]}, headers=HDR)
-    assert r.status_code == 200
-    assert r.get_json()["extras"] == ["oreos", "cereal"]
-
-    g = client.get("/grocery").get_json()
-    assert "Snacks" in g
-    assert "Oreos" in [i["item"] for i in g["Snacks"]]   # oreos -> Snacks (qty 1)
-    assert "Cereal" in [i["item"] for i in g["Grains"]]  # cereal -> Grains (qty 1)
-
-    # extras endpoint reads back what was written
-    e = client.get("/grocery/extras").get_json()
-    assert e == {"extras": ["oreos", "cereal"]}
-
-    # extras flow into the text export too
-    txt = client.get("/grocery/export?format=text").get_data(as_text=True)
-    assert "Oreos" in txt and "Cereal" in txt and "Snacks" in txt
+@pytest.mark.slow
+def test_rate_limit_429(client):
+    # §5.21/§8.4 — default 120/min; the 121st request is rejected.
+    for _ in range(120):
+        assert client.get("/health").status_code == 200
+    assert client.get("/health").status_code == 429

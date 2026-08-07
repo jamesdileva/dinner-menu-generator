@@ -31,7 +31,7 @@ class Meal(db.Model):
             "id": self.id,
             "name": self.name,
             "ingredients": self.ingredients,
-            "category": self.category
+            "category": self.category,
         }
 
 
@@ -45,8 +45,9 @@ class WeeklyMenu(db.Model):
 
 class UsedMeal(db.Model):
     """One row per home-meal picked on a given day (audit §3.9 — persists across restarts)."""
+
     id = db.Column(db.Integer, primary_key=True)
-    date = db.Column(db.String(10))   # YYYY-MM-DD
+    date = db.Column(db.String(10))  # YYYY-MM-DD
     meal_id = db.Column(db.Integer)
 
     # audit §9.1 — index the column pick_today() prunes/queries by (date).

@@ -11,7 +11,7 @@ Pure DB reads / no writes. Read via ``GET /insights`` (routes/menu.py).
 
 import logging
 
-from models import WeeklyMenu, db
+from models import WeeklyMenu
 from services.menu_service import expand_menu
 from utils import sanitize_text, load_nutrition_rules
 
@@ -65,7 +65,7 @@ def insights():
         for day, meal in expanded.items():
             if not isinstance(meal, dict):
                 continue
-            for raw in (meal.get("ingredients") or []):
+            for raw in meal.get("ingredients") or []:
                 tags = _tags_for(raw, rules)
                 if not tags:
                     continue

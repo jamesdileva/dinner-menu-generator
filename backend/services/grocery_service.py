@@ -7,13 +7,17 @@ Ports the aggregation/quantity-parsing/categorisation that lived inline in the
 import re
 
 from models import Meal, WeeklyMenu, db
-from utils import INGREDIENT_MAP, parse_quantity, categorize_ingredient, pluralize_word, sanitize_text
+from utils import (
+    INGREDIENT_MAP,
+    parse_quantity,
+    categorize_ingredient,
+    pluralize_word,
+    sanitize_text,
+)
 
 
 # common units to intercept while parsing ingredient strings
-UNIT_PATTERN = re.compile(
-    r"\b(lb|lbs|can|cans|oz|ozs|tsp|tbsp|cup|cups|pack|g|kg|piece|pieces)\b"
-)
+UNIT_PATTERN = re.compile(r"\b(lb|lbs|can|cans|oz|ozs|tsp|tbsp|cup|cups|pack|g|kg|piece|pieces)\b")
 
 
 def build_grocery_list():
@@ -51,15 +55,15 @@ def build_grocery_list():
             cleaned_str = raw_item.lower().strip()
 
             # 2. parse quantity + units
-            qty = 1.0          # default multiplier
-            unit = "count"     # default unit if none found
+            qty = 1.0  # default multiplier
+            unit = "count"  # default unit if none found
 
             num_match = re.match(r"^([0-9\./\s]+)", cleaned_str)
             if num_match:
                 num_str = num_match.group(1).strip()
                 qty = parse_quantity(num_str)
                 # strip numbers from the string
-                cleaned_str = cleaned_str[num_match.end():].strip()
+                cleaned_str = cleaned_str[num_match.end() :].strip()
 
             unit_match = UNIT_PATTERN.search(cleaned_str)
             if unit_match:
@@ -87,7 +91,7 @@ def build_grocery_list():
 
     # audit B3a — user-added extras attach to this week's menu; treat as count-unit qty-1
     # items that aggregate alongside meal ingredients.
-    for raw_item in (last_menu.extras or []):
+    for raw_item in last_menu.extras or []:
         if not raw_item:
             continue
         cleaned_str = raw_item.lower().strip()
@@ -120,10 +124,7 @@ def build_grocery_list():
                 if display_qty > 1:
                     qty_str += "s"  # pluralize the unit (lb -> lbs, can -> cans, ...)
 
-            grouped[category].append({
-                "item": item_display,
-                "qty": qty_str
-            })
+            grouped[category].append({"item": item_display, "qty": qty_str})
 
     return grouped
 

@@ -9,7 +9,6 @@ Blueprint: `meals_bp`
 """
 
 import io
-import json
 import logging
 
 import cv2
@@ -55,14 +54,16 @@ def get_meals():
 
     pagination = query.order_by(Meal.name.asc()).paginate(page=page, per_page=limit)
 
-    return jsonify({
-        "meals": [m.to_dict() for m in pagination.items],
-        "page": page,
-        "limit": limit,
-        "total": pagination.total,
-        "pages": pagination.pages,
-        "search": search or ""
-    })
+    return jsonify(
+        {
+            "meals": [m.to_dict() for m in pagination.items],
+            "page": page,
+            "limit": limit,
+            "total": pagination.total,
+            "pages": pagination.pages,
+            "search": search or "",
+        }
+    )
 
 
 @meals_bp.route("/meals/categories", methods=["GET"])
@@ -88,9 +89,7 @@ def add_meal():
 
     normalized = name.lower()
 
-    existing = Meal.query.filter(
-        db.func.lower(Meal.name) == normalized
-    ).first()
+    existing = Meal.query.filter(db.func.lower(Meal.name) == normalized).first()
 
     if existing:
         return jsonify({"error": "Meal already exists"}), 400
@@ -181,16 +180,19 @@ def upload_menu():
 
         # §4.5 friendly error if the OCR engine is unavailable
         if not tesseract_path:
-            return jsonify({
-                "error": "OCR not available: install Tesseract OCR and add it to your PATH"
-            }), 503
+            return (
+                jsonify(
+                    {"error": "OCR not available: install Tesseract OCR and add it to your PATH"}
+                ),
+                503,
+            )
 
         text = pytesseract.image_to_string(thresh, config=config)
         logger.debug("RAW OCR:\n%s", text)
 
         # split into lines FIRST, then filter
         lines = [line.strip() for line in text.split("\n") if line.strip()]
-        lines = [l for l in lines if is_valid_meal(l)]
+        lines = [_l for _l in lines if is_valid_meal(_l)]
 
         cleaned_meals = []
         for line in lines:
@@ -207,9 +209,7 @@ def upload_menu():
         for meal_name in cleaned_meals:
             name_lower = meal_name.lower()
 
-            existing = Meal.query.filter(
-                db.func.lower(Meal.name) == name_lower
-            ).first()
+            existing = Meal.query.filter(db.func.lower(Meal.name) == name_lower).first()
 
             if existing:
                 # NEW LOGIC: fill missing ingredients
@@ -220,21 +220,14 @@ def upload_menu():
                     skipped.append(meal_name)
                 continue
 
-            meal = Meal(
-                name=meal_name,
-                ingredients=generate_ingredients(meal_name)
-            )
+            meal = Meal(name=meal_name, ingredients=generate_ingredients(meal_name))
             db.session.add(meal)
             added.append(meal_name)
 
         db.session.commit()
 
-        return jsonify({
-            "added": added,
-            "updated": updated,
-            "skipped": skipped
-        })
+        return jsonify({"added": added, "updated": updated, "skipped": skipped})
 
-    except Exception as e:
+    except Exception:
         logger.exception("ERROR /upload-menu")
         return jsonify({"error": "Internal server error"}), 500

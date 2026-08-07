@@ -1,16 +1,15 @@
 """Grocery-list route (audit §4.1).
- 
-  Blueprint: `grocery_bp`
-    GET  /grocery          categorised grocery list from the last weekly menu
-    GET  /grocery/export   downloadable grocery list (audit §5.16): CSV (default) or text
-    GET  /grocery/extras   user-added grocery extras on the last menu (audit B3a)
-    PUT  /grocery/extras   replace extras on the last menu (audit B3a)
+
+Blueprint: `grocery_bp`
+  GET  /grocery          categorised grocery list from the last weekly menu
+  GET  /grocery/export   downloadable grocery list (audit §5.16): CSV (default) or text
+  GET  /grocery/extras   user-added grocery extras on the last menu (audit B3a)
+  PUT  /grocery/extras   replace extras on the last menu (audit B3a)
 """
- 
+
 import csv
 import io
 import logging
-
 from flask import Blueprint, jsonify, request, Response
 
 from services.grocery_service import build_grocery_list, get_extras, set_extras
@@ -27,7 +26,7 @@ def grocery():
             error, status = result
             return jsonify(error), status
         return jsonify(result)
-    except Exception as e:
+    except Exception:
         logger.exception("ERROR /grocery")
         return jsonify({"error": "Internal server error"}), 500
 
@@ -69,7 +68,7 @@ def export_grocery():
         if isinstance(result, tuple):
             error, status = result
             return jsonify(error), status
-    except Exception as e:
+    except Exception:
         logger.exception("ERROR /grocery/export")
         return jsonify({"error": "Internal server error"}), 500
 
@@ -93,5 +92,5 @@ def export_grocery():
     return Response(
         data,
         mimetype=mimetype,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
