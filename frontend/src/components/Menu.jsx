@@ -1,91 +1,99 @@
 // Weekly menu card: generates the week, lists each day, rerolls individual days.
-// audit §5.17: each day's meal name is now a toggle that reveals its ingredients
-// (no need to jump to the "All Meals" section just to see what's in a planned meal).
+// §5.17: each day's meal name toggles its ingredients. §13a.4: "Email this menu"
+// builds a mailto body from the 7-day plan (mirrors GroceryList's email link).
 
 import { useState } from "react";
 
-const card = {
-  background: "#1e1e1e",
-  padding: "15px",
-  borderRadius: "10px",
-  marginBottom: "20px",
-  boxShadow: "0 0 10px rgba(0,0,0,0.3)"
-};
-
-const btn = {
-  background: "#3b82f6",
-  border: "none",
-  padding: "8px 12px",
-  borderRadius: "6px",
-  color: "white",
-  cursor: "pointer"
-};
-
-const btnSmall = {
-  ...btn,
-  padding: "4px 8px",
-  marginLeft: "5px"
-};
-
-const nameBtn = {
-  background: "transparent",
-  border: "none",
-  color: "#e5e5e5",
-  padding: 0,
-  margin: 0,
-  cursor: "pointer",
-  textDecoration: "underline"
-};
+const dayOrder = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export default function Menu({ menu, onGenerate, onReroll }) {
-  const [openDay, setOpenDay] = useState(null);  // §5.17 ingredient detail toggle
+  const [openDay, setOpenDay] = useState(null); // §5.17 ingredient detail toggle
+
+  // §13a.4 — build a mailto: body with the 7-day plan
+  const emailBody = menu
+    ? dayOrder
+        .map((day) => {
+          const meal = menu[day];
+          if (!meal || !meal.name) return `${day}: —`;
+          const ing = meal.ingredients && meal.ingredients.length
+            ? ` — ${meal.ingredients.join(", ")}`
+            : "";
+          return `${day}: ${meal.name}${ing}`;
+        })
+        .join("\n")
+    : "";
 
   return (
-    <div style={card}>
+    <div className="card">
       <h2>Weekly Menu</h2>
-      <button style={btn} onClick={onGenerate}>Generate Week</button>
+      <div className="row-wrap" style={{ gap: "10px", marginBottom: "10px" }}>
+        <button className="btn" onClick={onGenerate}>
+          Generate Week
+        </button>
+      </div>
 
       {menu && (
-        <ul style={{ listStyle: "none", padding: 0, marginTop: "10px" }}>
-          {Object.entries(menu).map(([day, meal]) => (
-            <li
-              key={day}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "8px 0",
-                borderBottom: "1px solid #333"
-              }}
-            >
-              <span>
-                <strong>{day}:</strong>{" "}
-                <button
-                  style={nameBtn}
-                  onClick={() => setOpenDay(openDay === day ? null : day)}  // §5.17 toggle
-                >
-                  {meal?.name ?? "—"}
-                </button>
-              </span>
-              <div>
-                <button style={btnSmall} onClick={() => onReroll(day)}>🔄</button>
-              </div>
-              {openDay === day && meal?.ingredients && (
-                <ul style={{
-                  listStyle: "disc inside",
-                  margin: "6px 0 0 0",
-                  padding: 0,
-                  opacity: 0.8,
-                  fontSize: "13px"
-                }}>
-                  {meal.ingredients.map((ing, i) => (
-                    <li key={i}>{ing}</li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          ))}
-        </ul>
+        <>
+          <a
+            className="link-btn"
+            style={{ marginRight: "8px" }}
+            href={`mailto:?subject=My%20Weekly%20Menu&body=${encodeURIComponent(emailBody)}`}
+          >
+            Email this menu
+          </a>
+
+          <ul style={{ listStyle: "none", padding: 0, marginTop: "10px" }}>
+            {dayOrder.map((day) => {
+              const meal = menu[day];
+              const isOpen = openDay === day;
+              return (
+                <li key={day} className="list-item">
+                  <span>
+                    <strong style={{ color: "var(--text-muted)", fontSize: "12px" }}>
+                      {day}
+                    </strong>
+                    :{" "}
+                    <button
+                      className="btn-sm"
+                      style={{
+                        background: "transparent",
+                        color: "var(--text-h)",
+                        textDecoration: "underline",
+                        padding: 0,
+                        margin: 0,
+                        cursor: meal?.name ? "pointer" : "default",
+                      }}
+                      onClick={() => meal?.name && setOpenDay(isOpen ? null : day)}
+                    >
+                      {meal?.name ?? "—"}
+                    </button>
+                  </span>
+                  <div>
+                    <button className="btn-sm" onClick={() => onReroll(day)}>
+                      Reroll
+                    </button>
+                  </div>
+                  {isOpen && meal?.ingredients && meal.ingredients.length ? (
+                    <ul
+                      style={{
+                        listStyle: "disc",
+                        padding: "4px 0 0 18px",
+                        margin: 0,
+                        opacity: 0.8,
+                        fontSize: "13px",
+                        width: "100%",
+                      }}
+                    >
+                      {meal.ingredients.map((ing, i) => (
+                        <li key={i}>{ing}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
     </div>
   );

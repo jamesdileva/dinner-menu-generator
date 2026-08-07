@@ -7,92 +7,28 @@ import History from "./components/History.jsx";
 import Calendar from "./components/Calendar.jsx";
 import Insights from "./components/Insights.jsx";
 
-const card = {
-  background: "#1e1e1e",
-  padding: "15px",
-  borderRadius: "10px",
-  marginBottom: "20px",
-  boxShadow: "0 0 10px rgba(0,0,0,0.3)"
-};
-
-const btnSmall = {
-  background: "#3b82f6",
-  border: "none",
-  padding: "4px 8px",
-  marginLeft: "5px",
-  borderRadius: "6px",
-  color: "white",
-  cursor: "pointer"
-};
-
-const listItem = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  padding: "8px 0",
-  borderBottom: "1px solid #333"
-};
-
-const resultBox = {
-  marginTop: "15px",
-  padding: "10px",
-  background: "#2a2a2a",
-  borderRadius: "8px"
-};
-
-const errorBanner = {
-  background: "#7f1d1d",
-  color: "#fee2e2",
-  padding: "10px",
-  borderRadius: "8px",
-  marginBottom: "15px",
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center"
-};
-
-const spinner = {
-  display: "inline-block",
-  width: "14px",
-  height: "14px",
-  border: "2px solid #3b82f6",
-  borderTopColor: "transparent",
-  borderRadius: "50%",
-  animation: "spin 0.7s linear infinite"
-};
-
-const input = {
-  display: "block",
-  width: "100%",
-  marginBottom: "10px",
-  padding: "8px",
-  borderRadius: "6px",
-  border: "1px solid #333",
-  background: "#2a2a2a",
-  color: "#fff"
-};
-
-const undoBar = {
-  background: "#1f2937",
-  color: "#d1d5db",
-  padding: "8px 12px",
-  borderRadius: "8px",
-  marginBottom: "12px",
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  fontSize: "14px"
-};
-
 const UNDO_WINDOW_MS = 6000;
+
+function setTheme(theme) {
+  localStorage.setItem("theme", theme);
+  const root = document.getElementById("root");
+  root.setAttribute("data-theme", theme);
+}
+
+function toggleTheme() {
+  const root = document.getElementById("root");
+  const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+  setTheme(next);
+}
 
 export default function App() {
   const [menu, setMenu] = useState(null);
   const [name, setName] = useState("");
   const [ingredients, setIngredients] = useState("");
   const [grocery, setGrocery] = useState(null);
-   const [menuHistory, setMenuHistory] = useState(null); // §5.15
-   const [insights, setInsights] = useState(null); // audit B2
+  const [menuHistory, setMenuHistory] = useState(null); // §5.15
+  const [insights, setInsights] = useState(null); // audit B2
+  const [activeHistoryTab, setActiveHistoryTab] = useState("list"); // §13a.6
 
   const [meals, setMeals] = useState([]);
   const [mealsPage, setMealsPage] = useState(1);
@@ -115,7 +51,7 @@ export default function App() {
   const [category, setCategory] = useState("");
   const [categories, setCategories] = useState([]);
   const [mealCategory, setMealCategory] = useState("");
-  const [search, setSearch] = useState("");  // §5.18 meal name search
+  const [search, setSearch] = useState(""); // §5.18 meal name search
 
   // 4.2 centralised loading + error handling for async actions
   async function withLoading(fn) {
@@ -152,7 +88,9 @@ export default function App() {
   }
 
   useEffect(() => {
-    return () => { if (undoTimer.current) clearTimeout(undoTimer.current); };
+    return () => {
+      if (undoTimer.current) clearTimeout(undoTimer.current);
+    };
   }, []);
 
   const getTodayMeal = () => withLoading(async () => {
@@ -173,14 +111,13 @@ export default function App() {
     setGrocery(await apiFetch("/grocery"));
   });
 
-   const loadHistory = () => withLoading(async () => {
-     setMenuHistory(await apiFetch("/menus"));
-   });
+  const loadHistory = () => withLoading(async () => {
+    setMenuHistory(await apiFetch("/menus"));
+  });
 
-   const loadInsights = () => withLoading(async () => {
-     setInsights(await apiFetch("/insights"));
-   });
-
+  const loadInsights = () => withLoading(async () => {
+    setInsights(await apiFetch("/insights"));
+  });
 
   const rerollDay = async (day) => {
     // §5.12: capture prior meal so Undo can restore it via PUT /menu/<day>
@@ -189,14 +126,18 @@ export default function App() {
     setLoading(true);
     try {
       const data = await apiFetch(`/menu/reroll/${day}`, { method: "POST" });
-      setMenu(prev => ({ ...prev, [day]: data.meal }));
+      setMenu((prev) => ({ ...prev, [day]: data.meal }));
       if (prevMeal) {
-          showUndo(`Rolled "${prevMeal.name}" for ${day}; undo?`, () =>
+        showUndo(`Rolled "${prevMeal.name}" for ${day}; undo?`, () =>
           apiFetch(`/menu/${day}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(prevMeal)
-          }).then(res => setMenu(p => ({ ...p, [day]: res.meal ?? prevMeal }))).catch(() => {})
+            body: JSON.stringify(prevMeal),
+          })
+            .then((res) =>
+              setMenu((p) => ({ ...p, [day]: res.meal ?? prevMeal }))
+            )
+            .catch(() => {})
         );
       }
     } catch (e) {
@@ -204,28 +145,32 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }
+  };
 
-  const loadMeals = (page = 1) => withLoading(async () => {
-    let url = `/meals?page=${page}&limit=${MEALS_PER_PAGE}`;
-    if (mealCategory) url += `&category=${encodeURIComponent(mealCategory)}`;  // §5.14
-    if (search) url += `&search=${encodeURIComponent(search)}`;  // §5.18
-    const data = await apiFetch(url);
-    setMeals(data.meals);
-    setMealsPage(data.page);
-    setMealsPages(data.pages);
-    setMealsTotal(data.total);
-  });
+  const loadMeals = (page = 1) =>
+    withLoading(async () => {
+      let url = `/meals?page=${page}&limit=${MEALS_PER_PAGE}`;
+      if (mealCategory) url += `&category=${encodeURIComponent(mealCategory)}`; // §5.14
+      if (search) url += `&search=${encodeURIComponent(search)}`; // §5.18
+      const data = await apiFetch(url);
+      setMeals(data.meals);
+      setMealsPage(data.page);
+      setMealsPages(data.pages);
+      setMealsTotal(data.total);
+    });
 
-  const loadCategories = () => {  // §5.14 distinct category list for the filter dropdown
-    apiFetch("/meals/categories").then(res => setCategories(res.categories)).catch(() => {});
+  const loadCategories = () => {
+    apiFetch("/meals/categories")
+      .then((res) => setCategories(res.categories))
+      .catch(() => {});
   };
 
   const editMeal = (meal) => {
-    // §5.12: open inline edit form instead of blocking prompt()
     setEditingMeal(meal);
     setEditName(meal.name);
-    setEditIngredients(Array.isArray(meal.ingredients) ? meal.ingredients.join(", ") : "");
+    setEditIngredients(
+      Array.isArray(meal.ingredients) ? meal.ingredients.join(", ") : ""
+    );
     setEditCategory(meal.category || "");
   };
 
@@ -236,31 +181,33 @@ export default function App() {
     setEditCategory("");
   };
 
-  const saveEdit = (meal) => withLoading(async () => {
-    await apiFetch(`/meal/${meal.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: editName.trim(),
-        ingredients: editIngredients.split(",").map(i => i.trim()).filter(Boolean),
-        category: editCategory || undefined  // §5.14
-      })
+  const saveEdit = (meal) =>
+    withLoading(async () => {
+      await apiFetch(`/meal/${meal.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editName.trim(),
+          ingredients: editIngredients
+            .split(",")
+            .map((i) => i.trim())
+            .filter(Boolean),
+          category: editCategory || undefined, // §5.14
+        }),
+      });
+      cancelEdit();
+      loadMeals(mealsPage);
     });
-    cancelEdit();
-    loadMeals(mealsPage);
-  });
 
   const uploadImage = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     const formData = new FormData();
     formData.append("image", file);
-
     withLoading(async () => {
       const data = await apiFetch("/upload-menu", {
         method: "POST",
-        body: formData
+        body: formData,
       });
       alert(
         `Added: ${data.added.length}\nUpdated: ${data.updated.length}\nSkipped: ${data.skipped.length}`
@@ -269,94 +216,166 @@ export default function App() {
     });
   };
 
-   const deleteMeal = (meal) => withLoading(async () => {
-    await apiFetch(`/meal/${meal.id}`, { method: "DELETE" });
-    // §5.12: offer Undo; recreating needs the original meal object
-    showUndo(`Deleted "${meal.name}"; undo?`, () =>
-      apiFetch("/meal", {
+  const deleteMeal = (meal) =>
+    withLoading(async () => {
+      await apiFetch(`/meal/${meal.id}`, { method: "DELETE" });
+      // §5.12: offer Undo; recreating needs the original meal object
+      showUndo(`Deleted "${meal.name}"; undo?`, () =>
+        apiFetch("/meal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: meal.id,
+            name: meal.name,
+            ingredients: meal.ingredients,
+          }),
+        })
+          .then(() => loadMeals(mealsPage))
+          .catch(() => {})
+      );
+      loadMeals(mealsPage);
+    });
+
+  const addMeal = () =>
+    withLoading(async () => {
+      await apiFetch("/meal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: meal.id, name: meal.name, ingredients: meal.ingredients })
-      }).then(() => loadMeals(mealsPage)).catch(() => {})
-    );
-    loadMeals(mealsPage);
-  });
-
-  const addMeal = () => withLoading(async () => {
-    await apiFetch("/meal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        ingredients: ingredients.split(",").map(i => i.trim()),
-        category: category || undefined  // §5.14
-      })
+        body: JSON.stringify({
+          name,
+          ingredients: ingredients
+            .split(",")
+            .map((i) => i.trim())
+            .filter(Boolean),
+          category: category || undefined, // §5.14
+        }),
+      });
+      setName("");
+      setIngredients("");
+      setCategory("");
+      loadMeals(1);
     });
-    setName("");
-    setIngredients("");
-    setCategory("");
-    loadMeals(1);
-  });
 
   useEffect(() => {
     loadMeals();
-    loadCategories();  // §5.14
+    loadCategories(); // §5.14
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
-    <div style={{
-      background: "#121212",
-      color: "#e5e5e5",
-      minHeight: "100vh",
-      padding: "25px",
-      fontFamily: "Arial",
-      maxWidth: "900px",
-      margin: "0 auto"
-    }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-
-      <h1 style={{ marginBottom: "25px" }}>🍽 Dinner Planner</h1>
+    <div className="app-shell">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+        <h1 style={{ margin: 0 }}>Dinner Planner</h1>
+        <button
+          className="btn-sm"
+          style={{ padding: "4px 10px", fontSize: "13px" }}
+          onClick={toggleTheme}
+          title="Toggle dark / light"
+        >
+          {document.getElementById("root")?.getAttribute("data-theme") === "dark" ? "☀️ Light" : "🌙 Dark"}
+        </button>
+      </div>
 
       {error && (
-        <div style={errorBanner}>
+        <div className="error-banner">
           <span>{error}</span>
-          <button style={btnSmall} onClick={() => setError(null)}>✕</button>
+          <button className="btn-sm" onClick={() => setError(null)}>
+            ✕
+          </button>
         </div>
       )}
       {loading && (
-        <div style={{ marginBottom: "10px" }}>Loading <span style={spinner}></span></div>
+        <div className="row-gap" style={{ marginBottom: "10px" }}>
+          <span>Loading</span>
+          <span className="spinner"></span>
+        </div>
       )}
 
       {undo && (
-        <div style={undoBar}>
+        <div className="undo-bar">
           <span>{undo.message}</span>
-          <button style={{...btnSmall, padding:"4px 8px"}} onClick={runUndo}>Undo</button>
-          <button style={{...btnSmall, padding:"4px 8px", marginLeft:"6px"}} onClick={dismissUndo}>✕</button>
+          <button className="btn-sm" onClick={runUndo}>
+            Undo
+          </button>
+          <button className="btn-sm" style={{ marginLeft: "6px" }} onClick={dismissUndo}>
+            ✕
+          </button>
         </div>
       )}
 
       {/* WEEKLY MENU */}
-      <Menu
-        menu={menu}
-        onGenerate={loadMenu}
-        onReroll={rerollDay}
-      />
+      <Menu menu={menu} onGenerate={loadMenu} onReroll={rerollDay} />
 
       {/* GROCERY LIST */}
-      <GroceryList
-        grocery={grocery}
-        onGenerate={loadGrocery}
-      />
+      <GroceryList grocery={grocery} onGenerate={loadGrocery} />
 
-      {/* MENU HISTORY */}
-      <History
-        history={menuHistory}
-        onGenerate={loadHistory}
-      />
+      {/* QUICK PICK */}
+      <div className="card">
+        <h2>Quick Pick</h2>
+        <div className="row-wrap" style={{ gap: "10px", marginBottom: "10px" }}>
+          <button className="btn" onClick={getTodayMeal}>
+            Home
+          </button>
+          <button className="btn" onClick={getTakeout}>
+            Takeout
+          </button>
+        </div>
 
-      {/* CALENDAR VIEW (audit B1): read-only, reuses the /menus fetch */}
-      <Calendar menus={menuHistory} onGenerate={loadHistory} />
+        {today && (
+          <div className="result-box">
+            <strong>At Home:</strong>
+            <h3 style={{ margin: "4px 0 0" }}>{today.name}</h3>
+          </div>
+        )}
+
+        {takeout && (
+          <div className="result-box">
+            <strong>Takeout:</strong>
+            <h3 style={{ margin: "4px 0 0" }}>{takeout.name}</h3>
+            <p style={{ opacity: 0.7 }}>{takeout.type}</p>
+          </div>
+        )}
+      </div>
+
+      {/* PAST MENUS (history / calendar tabs) — §13a.6 */}
+      <div className="card">
+        <h2>Past Menus</h2>
+        <div className="row-gap" style={{ marginBottom: "10px" }}>
+          <button
+            className="btn-sm"
+            style={{
+              background: activeHistoryTab === "list" ? "var(--accent)" : "var(--bg-panel)",
+              color: activeHistoryTab === "list" ? "#fff" : "var(--text-muted)",
+            }}
+            onClick={() => setActiveHistoryTab("list")}
+          >
+            List
+          </button>
+          <button
+            className="btn-sm"
+            style={{
+              background: activeHistoryTab === "calendar" ? "var(--accent)" : "var(--bg-panel)",
+              color: activeHistoryTab === "calendar" ? "#fff" : "var(--text-muted)",
+            }}
+            onClick={() => setActiveHistoryTab("calendar")}
+          >
+            Calendar
+          </button>
+        </div>
+
+        {activeHistoryTab === "list" && (
+          <History history={menuHistory} onGenerate={loadHistory} />
+        )}
+        {activeHistoryTab === "calendar" && (
+          <Calendar menus={menuHistory} onGenerate={loadHistory} />
+        )}
+
+        {menuHistory === null && (
+          <button className="btn" onClick={loadHistory}>
+            Load History
+          </button>
+        )}
+      </div>
 
       {/* INSIGHTS (audit B2): macro overview + deficiency flags + swap suggestions */}
       <Insights data={insights} onGenerate={loadInsights} />
@@ -374,108 +393,124 @@ export default function App() {
         onUpload={uploadImage}
       />
 
-      {/* QUICK PICK */}
-      <div style={card}>
-        <h2>Quick Pick</h2>
-        <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
-          <button style={{...btnSmall, padding:"8px 12px"}} onClick={getTodayMeal}>🍽 Home</button>
-          <button style={{...btnSmall, padding:"8px 12px"}} onClick={getTakeout}>🍔 Takeout</button>
-        </div>
-
-        {today && (
-          <div style={resultBox}>
-            <strong>At Home:</strong>
-            <h3>{today.name}</h3>
-          </div>
-        )}
-
-        {takeout && (
-          <div style={resultBox}>
-            <strong>Takeout:</strong>
-            <h3>{takeout.name}</h3>
-            <p style={{ opacity: 0.7 }}>{takeout.type}</p>
-          </div>
-        )}
-      </div>
-
       {/* ALL MEALS (paginated) */}
-      <div style={card}>
+      <div className="card">
         <h2>All Meals</h2>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+        <div className="row-gap" style={{ marginBottom: "10px" }}>
           <span>Category:</span>
           <select
-            style={{ ...input, width: "auto" }}
+            className="input-field-sm"
             value={mealCategory}
-            onChange={(e) => { setMealCategory(e.target.value); loadMeals(1); }}
+            onChange={(e) => {
+              setMealCategory(e.target.value);
+              loadMeals(1);
+            }}
           >
             <option value="">All</option>
             {categories.map((c) => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c} value={c}>
+                {c}
+              </option>
             ))}
           </select>
         </div>
 
         <input
-          style={{ ...input, width: "100%" }}
+          className="input-field"
           placeholder="Search meals…"
           value={search}
-          onChange={(e) => { setSearch(e.target.value); loadMeals(1); }}  // §5.18
+          onChange={(e) => {
+            setSearch(e.target.value);
+            loadMeals(1);
+          }}
         />
 
         <ul style={{ listStyle: "none", padding: 0 }}>
           {meals.map((meal) => (
-            <li key={meal.id} style={listItem}>
+            <li key={meal.id} className="list-item">
               {editingMeal?.id === meal.id ? (
                 <div style={{ display: "block", width: "100%" }}>
                   <input
-                    style={input}
+                    className="input-field"
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
                     placeholder="Meal name"
                   />
-                   <input
-                     style={input}
-                     value={editIngredients}
-                     onChange={(e) => setEditIngredients(e.target.value)}
-                     placeholder="Ingredients (comma separated)"
-                   />
-                   <select
-                     style={{ ...input, marginBottom: "8px" }}
-                     value={editCategory}
-                     onChange={(e) => setEditCategory(e.target.value)}
-                   >
-                     <option value="">(no category)</option>
-                     {categories.map((c) => (
-                       <option key={c} value={c}>{c}</option>
-                     ))}
-                   </select>
-                   <div style={{ display: "flex", gap: "8px" }}>
-                    <button style={btnSmall} onClick={() => saveEdit(meal)}>Save</button>
-                    <button style={btnSmall} onClick={cancelEdit}>Cancel</button>
+                  <input
+                    className="input-field"
+                    value={editIngredients}
+                    onChange={(e) => setEditIngredients(e.target.value)}
+                    placeholder="Ingredients (comma separated)"
+                  />
+                  <select
+                    className="input-field"
+                    style={{ marginBottom: "8px" }}
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value)}
+                  >
+                    <option value="">(no category)</option>
+                    {categories.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="row-gap" style={{ gap: "8px" }}>
+                    <button className="btn-sm" onClick={() => saveEdit(meal)}>
+                      Save
+                    </button>
+                    <button className="btn-sm" onClick={cancelEdit}>
+                      Cancel
+                    </button>
                   </div>
                 </div>
               ) : (
-                   <>
-                     <span>{meal.name}{meal.category ? <span style={{ opacity: 0.6 }}> · {meal.category}</span> : null}</span>
-                     <div>
-                       <button style={btnSmall} onClick={() => editMeal(meal)}>✏️</button>
-                       <button style={btnSmall} onClick={() => deleteMeal(meal)}>❌</button>
-                     </div>
-                   </>
+                <>
+                  <span>
+                    {meal.name}
+                    {meal.category ? (
+                      <span className="category-chip">{meal.category}</span>
+                    ) : null}
+                  </span>
+                  <div>
+                    <button className="btn-sm" onClick={() => editMeal(meal)}>
+                      Edit
+                    </button>
+                    <button className="btn-sm" onClick={() => deleteMeal(meal)}>
+                      Delete
+                    </button>
+                  </div>
+                </>
               )}
             </li>
           ))}
         </ul>
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px", fontSize: "13px", color: "#9ca3af" }}>
-          <span>Page {mealsPage}/{mealsPages} ({mealsTotal} meals)</span>
-          <div>
-            <button style={btnSmall} onClick={() => loadMeals(mealsPage - 1)} disabled={mealsPage <= 1}>Prev</button>
-            <button style={btnSmall} onClick={() => loadMeals(mealsPage + 1)} disabled={mealsPage >= mealsPages}>Next</button>
+        <div
+          className="row-between"
+          style={{ marginTop: "10px", fontSize: "13px", color: "var(--text-muted)" }}
+        >
+          <span>
+            Page {mealsPage}/{mealsPages} ({mealsTotal} meals)
+          </span>
+          <div className="row-gap" style={{ gap: "6px" }}>
+            <button
+              className="btn-sm"
+              onClick={() => loadMeals(mealsPage - 1)}
+              disabled={mealsPage <= 1}
+            >
+              Prev
+            </button>
+            <button
+              className="btn-sm"
+              onClick={() => loadMeals(mealsPage + 1)}
+              disabled={mealsPage >= mealsPages}
+            >
+              Next
+            </button>
           </div>
         </div>
       </div>
-
     </div>
   );
 }
