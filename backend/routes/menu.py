@@ -6,9 +6,13 @@ Blueprint: `menu_bp`
   GET  /menu/decide       quick pick: home OR takeout
   GET  /menu/week         generate a 7-day weekly menu
   POST /menu/reroll/<day> reroll one day of the last weekly menu
+  GET  /menus             list all saved weekly menus (history view, §5.15)
+  GET  /insights          macro overview + deficiency flags + swap tips (audit B2)
 """
 
-from flask import Blueprint, jsonify
+import logging
+
+from flask import Blueprint, jsonify, request
 
 from services.menu_service import (
     pick_today,
@@ -16,9 +20,15 @@ from services.menu_service import (
     decide,
     generate_week,
     reroll_day,
+    set_menu_day,
+    expand_menu,
+    list_menus,
 )
+from services.nutrition_service import insights
 
 menu_bp = Blueprint("menu_bp", __name__)
+logger = logging.getLogger(__name__)
+
 
 
 def _respond(result):
@@ -47,12 +57,37 @@ def decide_route():
 @menu_bp.route("/menu/week", methods=["GET"])
 def week():
     try:
-        return _respond(generate_week())
+        result = generate_week()
+        # §5.13 menus store meal ids; expand to full dicts for the frontend display
+        if isinstance(result, dict):
+            result = expand_menu(result)
+        return _respond(result)
     except Exception as e:
-        print("❌ ERROR /menu/week:", e)
-        return jsonify({"error": str(e)}), 500
+        logger.exception("ERROR /menu/week")
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @menu_bp.route("/menu/reroll/<day>", methods=["POST"])
 def reroll(day):
     return _respond(reroll_day(day))
+
+
+@menu_bp.route("/menu/<day>", methods=["PUT"])
+def set_day(day):
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict) or "name" not in data:
+        return jsonify({"error": "Invalid meal payload (need {name, ingredients})"}), 400
+    return _respond(set_menu_day(day, data))
+
+
+@menu_bp.route("/menus", methods=["GET"])
+def menus():
+    """Menu history: list all saved weekly menus, newest first (audit §5.15)."""
+    return _respond(list_menus())
+
+
+@menu_bp.route("/insights", methods=["GET"])
+def insights_route():
+    """Audit B2: last-few-weeks macro overview + deficiency flags + swap suggestions."""
+    return _respond(insights())
+

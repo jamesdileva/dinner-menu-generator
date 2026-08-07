@@ -72,7 +72,8 @@ serves the built frontend if `frontend/dist/` exists.
 
 ### Database Migrations (audit §4.8)
 Schema changes are managed with Flask-Migrate (Alembic). The `migrations/` folder
-(baseline revision `6c296b498bf1` = current schema) is committed to the repo.
+(baseline revision `6c296b498bf1`; `7a9c4f2e1b86` adds `Meal.category`; `8b1c2d3e4f5a`
+ stores weekly menus as meal-id references so edits propagate — see §5.13) is committed to the repo.
 
 ```bash
 cd backend
@@ -108,6 +109,16 @@ cd frontend
 npm run lint
 ```
 
+### Run Tests (audit §11)
+```bash
+pip install -r requirements-dev.txt   # once: installs pytest (backend)
+pytest                                # runs backend test suite (temp DB, dinner.db untouched)
+pytest -m slow                        # also runs the rate-limit test (§5.21)
+# (optional, from repo root) pytest -m "not slow" -q
+```
+Backend tests run against a throwaway SQLite DB (`DATABASE_URL` set in `tests/conftest.py`
+before `app` is imported) — they never touch `backend/instance/dinner.db`.
+
 ### Package as Desktop Executable
 ```bash
 cd frontend
@@ -115,12 +126,19 @@ npm run build
 cd ../backend
 python -m PyInstaller --noconfirm --onefile --windowed \
   --add-data "../frontend/dist;frontend/dist" \
-  --add-data "migrations;migrations" app.py
+  --add-data "migrations;migrations" \
+  --add-data "ingredient_rules.json;." \
+  --add-data "meal_name_fixes.json;." \
+  --add-data "nutrition_rules.json;." \
+  app.py
 ```
+The two `--add-data` JSON lines bundle the config-driven ingredient rules (§5.9) and the
+meal-name typo map (§5.19) into the frozen `_MEIPASS` directory so OCR import + name
+cleaning keep working in the packaged exe.
 
 ### Typecheck / Backend Lint
-- No backend linter is configured. The project relies on `python-dotenv` (in requirements)
-  but `.env` loading is not in `app.py`.
+- No backend linter is configured. `.env` is now loaded in `app.py` via `python-dotenv`
+  (`load_dotenv()`); `SQLALCHEMY_DATABASE_URI` is env-overridable (`DATABASE_URL`).
 - No test framework is configured (see [Audit: Testing](./audit.md#11-testing)).
 
 ## API Endpoints
@@ -134,12 +152,17 @@ python -m PyInstaller --noconfirm --onefile --windowed \
 | GET    | `/menu/decide`      | Random choice: home or takeout                      |
 | POST   | `/menu/reroll/:day` | Reroll a specific day in the last weekly menu       |
 | GET    | `/menu/week`        | Generate a 7-day weekly menu (no internal repeats)  |
+| PUT    | `/menu/:day`        | Set the meal for a day in the last weekly menu (undo)|
 | GET    | `/meals`            | List all meals (sorted by name)                     |
+| GET    | `/meals/categories` | Distinct, non-null meal categories (§5.14)          |
 | POST   | `/meal`             | Add a new meal                                      |
 | PUT    | `/meal/:id`         | Update a meal by ID                                 |
 | DEL    | `/meal/:id`         | Delete a meal by ID                                 |
 | POST   | `/upload-menu`      | Upload an image for OCR meal import                 |
 | GET    | `/grocery`          | Generate a categorized grocery list from last menu  |
+| GET    | `/grocery/export`   | Download last grocery list as CSV (default) or text |
+| GET,PUT| `/grocery/extras`   | Get/replace user-added shopping items on the last menu (B3a) |
+| GET    | `/insights`         | Macro overview + deficiency flags + swap tips over last menus (B2) |
 | GET    | `/export`           | Export all meals and menus as JSON                  |
 | POST   | `/import`           | Import meals and menus from JSON body               |
 | GET,POST| `/import-file`      | Import from `?path=<file>`, a multipart upload, or legacy `backup.json` (§5.4) |
@@ -148,13 +171,15 @@ python -m PyInstaller --noconfirm --onefile --windowed \
 
 SQLite database (`dinner.db`, stored in `backend/instance/`). Three tables:
 
-- **Meal** — `id` (int, PK), `name` (string), `ingredients` (JSON list)
-- **WeeklyMenu** — `id` (int, PK), `meals` (JSON, keyed by day name: Mon–Sun)
+- **Meal** — `id` (int, PK), `name` (string), `ingredients` (JSON list), `category` (string, opt)
+- **WeeklyMenu** — `id` (int, PK), `meals` (JSON, keyed by day name: Mon–Sun), `extras` (JSON list of user-added grocery items, opt)
 - **UsedMeal** — `id` (int, PK), `date` (string YYYY-MM-DD), `meal_id` (int)
   (tracks which meals were picked today for the `/menu/today` no-repeat rule)
 
-Weekly menus are stored as snapshots (meals JSON embedded at generation time). Editing
-a meal after a menu is generated will **not** retroactively update past menus.
+Weekly menus store **meal ids** (not full snapshots); meals are resolved fresh at
+read time (grocery lists, `/menu/week`, `/export`). Editing a meal **is reflected** in
+menus generated after the edit, including the grocery list built from the latest menu.
+`menu_service.expand_menu()` transparently handles legacy full-snapshot menus too.
 
 ## Key Design Principles
 
@@ -185,22 +210,29 @@ a meal after a menu is generated will **not** retroactively update past menus.
 
 ## Known Issues (per `audit.md`)
 
-> **Status: as of 2026-08-04**, the following audit.md issues are FIXED (see `[x]`
+> **Status: as of 2026-08-05**, the following audit.md issues are FIXED (see `[x]`
 > checkmarks): all §3 critical bugs; and §4.1 (monolith split: `app.py` / `App.jsx` →
 > `routes/`, `services/`, `models.py`, `config.py`, `utils.py`, `components/`), §4.2
 > (frontend error handling + loading states), §4.3 (CORS → `localhost:5173`), §4.4
 > (`GET /health`), §4.5 (Tesseract check), §4.6 (upload validation), §4.7 (`/meals`
 > pagination incl. frontend), §4.8 (Flask-Migrate), §4.9/§4.10 (unused deps removed),
-> §5.4 (`/import-file` accepts `?path=`/upload or legacy `backup.json`), and §5.5/§5.6/§8.1
-> (`/fix-data` and `/init-db` moved to Flask CLI commands; `/import-file` kept as a
-> non-destructive import feature), §5.11 (grocery count-item pluralization — irregulars
-> like tomato→tomatoes, mass nouns left alone, regular suffix rules).
+> §5.2 (debug prints → logging), §5.3 (logging framework), §5.4 (`/import-file` accepts
+> `?path=`/upload or legacy `backup.json`), §5.5/§5.6/§8.1 (`/fix-data` and `/init-db`
+> moved to Flask CLI commands; `/import-file` kept as a non-destructive import feature),
+> §5.7 (`.env` loaded via python-dotenv; `DATABASE_URL` overridable), §5.11 (grocery
+> count-item pluralization — irregulars like tomato→tomatoes, mass nouns left alone,
+> regular suffix rules), §5.12 (inline edit + Undo toasts for reroll/delete), §5.13
+> (weekly menus stored as meal ids, resolved live at read time), §5.14 (Meal.category +
+> filter), §5.15 (menu history view / `GET /menus`), §5.16 (`/grocery/export` CSV/text),
+> §5.18 (meal search bar + `/meals?search=`), §5.19 (configurable `meal_name_fixes.json`),
+> §5.20 (SIGINT/SIGTERM graceful shutdown), §5.21/§8.4 (Flask-Limiter rate limiting),
+> §5.22/§8.3 (CSRF protection via custom-header verification), §5.17 (menu ingredient detail
+> view), §8.5 (`.env` template cleanup), §8.7 (generic 500 handlers, no exception leak),
+> §9.1 (Meal/UsedMeal indexes), §7.2 (current_week removed — gone from `backend/`), §7.3 (unused imports: `shutil` removed, stale monolith refs gone with §4.1), §9.6 (random.sample → DB-level `ORDER BY RANDOM() LIMIT 7` with a single COUNT guard), §11.1–§11.2 (pytest harness + backend tests), §6.1 (backend comment emoji stripped), §6.3 (`.editorconfig`), §6.8 (favicon linked), §6.9 (dead `App.css` removed; `index.css` kept as active theme), §11.3 (GitHub Actions CI), §13.17 (read-only calendar view), §13.18 (presence-based nutrition insight, local-only). Fixed as of
+> 2026-08-05.
 > Remaining:
 >
-> - §8.3 CSRF protection (POST/PUT/DELETE have no tokens)
-> - §8.4 rate limiting
-> - §8.6 input sanitization
-> - (see `audit.md` §8 for details)
+> - (see `audit.md` §6–§11 for the low-priority polish / dead-code / perf / tooling backlog)
 
 ## Maintenance CLI Commands (audit §5.5 / §5.6 / §8.1)
 
@@ -220,8 +252,8 @@ intentionally kept over HTTP — per §5.4 it is the user-facing data-import fea
 ## Working Style
 
 - Run `npm run lint` in `frontend/` after frontend changes.
-- No backend linter exists; manual review is the norm.
-- No test suite exists; verify manually by running `python app.py` and exercising
-  endpoints via browser or curl.
+- No backend linter exists; manual review is the norm (§10.1 — a `black`/`isort`/`flake8` config is a future polish).
+- Run `pytest` (from repo root) after backend changes; the suite uses a throwaway temp DB so
+  `dinner.db` is never modified (see §11). Frontend stays lint-only (no test runner).
 - The audit.md file is the single source of truth for known issues and the
   recommended 5-phase roadmap.

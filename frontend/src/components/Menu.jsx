@@ -1,4 +1,8 @@
 // Weekly menu card: generates the week, lists each day, rerolls individual days.
+// audit §5.17: each day's meal name is now a toggle that reveals its ingredients
+// (no need to jump to the "All Meals" section just to see what's in a planned meal).
+
+import { useState } from "react";
 
 const card = {
   background: "#1e1e1e",
@@ -23,7 +27,19 @@ const btnSmall = {
   marginLeft: "5px"
 };
 
+const nameBtn = {
+  background: "transparent",
+  border: "none",
+  color: "#e5e5e5",
+  padding: 0,
+  margin: 0,
+  cursor: "pointer",
+  textDecoration: "underline"
+};
+
 export default function Menu({ menu, onGenerate, onReroll }) {
+  const [openDay, setOpenDay] = useState(null);  // §5.17 ingredient detail toggle
+
   return (
     <div style={card}>
       <h2>Weekly Menu</h2>
@@ -42,8 +58,31 @@ export default function Menu({ menu, onGenerate, onReroll }) {
                 borderBottom: "1px solid #333"
               }}
             >
-              <span><strong>{day}:</strong> {meal.name}</span>
-              <button style={btnSmall} onClick={() => onReroll(day)}>🔄</button>
+              <span>
+                <strong>{day}:</strong>{" "}
+                <button
+                  style={nameBtn}
+                  onClick={() => setOpenDay(openDay === day ? null : day)}  // §5.17 toggle
+                >
+                  {meal?.name ?? "—"}
+                </button>
+              </span>
+              <div>
+                <button style={btnSmall} onClick={() => onReroll(day)}>🔄</button>
+              </div>
+              {openDay === day && meal?.ingredients && (
+                <ul style={{
+                  listStyle: "disc inside",
+                  margin: "6px 0 0 0",
+                  padding: 0,
+                  opacity: 0.8,
+                  fontSize: "13px"
+                }}>
+                  {meal.ingredients.map((ing, i) => (
+                    <li key={i}>{ing}</li>
+                  ))}
+                </ul>
+              )}
             </li>
           ))}
         </ul>

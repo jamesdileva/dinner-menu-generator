@@ -1,0 +1,26 @@
+{
+  "pasta_base": [
+    ["angel hair", ["angel hair pasta"]],
+    ["spaghetti", ["spaghetti pasta"]],
+    ["pasta", ["pasta"]]
+  ],
+  "flavor_additions": [
+    ["alfredo", ["chicken", "cream", "parmesan"]],
+    ["taco", ["beef", "tortilla", "cheese", "lettuce"]],
+    ["burrito", ["chicken", "rice", "tortilla", "cheese"]],
+    ["pizza", ["dough", "cheese", "tomato sauce"]],
+    ["burger", ["beef", "bun", "cheese"]],
+    ["salad", ["lettuce", "tomato", "dressing"]],
+    ["rice", ["rice"]],
+    ["shrimp", ["shrimp", "garlic", "butter"]],
+    ["stew", ["beef", "potato", "carrot"]],
+    ["curry", ["chicken", "rice", "curry", "onion"]],
+    ["kebab", ["lamb", "onion", "tomato", "pepper"]],
+    ["poke", ["tuna", "rice", "avocado", "cucumber"]],
+    ["ramen", ["ramen", "pork", "bean sprout", "green onion"]],
+    ["pad thai", ["rice noodle", "shrimp", "peanut", "bean sprout", "lime"]],
+    ["wrap", ["chicken", "tortilla", "lettuce", "tomato"]],
+    ["chili", ["beef", "bean", "tomato", "onion"]]
+  ],
+  "fallback_min_word_len": 3
+}

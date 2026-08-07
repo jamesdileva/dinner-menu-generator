@@ -14,24 +14,56 @@ and serve the bundled frontend. All real logic lives in:
 
 import os
 import sys
-import shutil
-import webbrowser
+import signal
+import logging
 import threading
+import webbrowser
 
-from flask import Flask, jsonify, send_from_directory
+from dotenv import load_dotenv  # audit §5.7 (python-dotenv already in requirements.txt)
+
+from flask import Flask, jsonify, send_from_directory, request
+from werkzeug.exceptions import HTTPException
 from flask_cors import CORS
 from flask_migrate import Migrate, upgrade, stamp
 
 import pytesseract
 
+# audit §5.7 — load .env into os.environ *before* Config reads it (e.g. DATABASE_URL).
+load_dotenv()
+
+# audit §5.3 — structured logging instead of bare print() (§5.2). One place to configure
+# levels/handlers; every module reads its own logger via logging.getLogger(__name__).
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("dinner")
+
+
+def _handle_shutdown(signum, frame):
+    """audit §5.20 — log and exit cleanly on SIGINT/SIGTERM (desktop exe close, Ctrl-C)."""
+    logger.info("Received signal %s — shutting down gracefully.", signum)
+    raise SystemExit(0)
+
+
+def _register_signal_handlers():
+    # signal handlers can only be installed from the main thread
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            signal.signal(sig, _handle_shutdown)
+        except (ValueError, OSError):
+            pass
+
 from config import Config
 from models import db
 from utils import tesseract_path
+from limiter import limiter  # audit §5.21 / §8.4 — rate limiting
 from routes.meals import meals_bp
 from routes.menu import menu_bp
 from routes.grocery import grocery_bp
 from routes.data import data_bp
 from cli import register_cli
+
 
 # --- PyInstaller-aware frontend build dir ---------------------------------
 if hasattr(sys, "_MEIPASS"):
@@ -43,8 +75,8 @@ else:
 
 # --- OCR engine availability (audit §4.5) ---------------------------------
 if not tesseract_path:
-    print("⚠️  WARNING: Tesseract not found in PATH — image upload (OCR) will not work.")
-    print("   Install Tesseract: https://github.com/tesseract-ocr/tesseract")
+    logger.warning("Tesseract not found in PATH — image upload (OCR) will not work.")
+    logger.warning("Install Tesseract: https://github.com/tesseract-ocr/tesseract")
 else:
     pytesseract.pytesseract.tesseract_cmd = tesseract_path
 
@@ -61,6 +93,8 @@ if hasattr(sys, "_MEIPASS"):
 else:
     _MIGRATIONS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "migrations"))
 Migrate(app, db, directory=_MIGRATIONS_DIR)  # audit §4.8 — Alembic migrations
+
+limiter.init_app(app)  # audit §5.21 / §8.4 — apply default rate limits to all routes
 
 
 # --- Health check (audit §4.4) -------------------------------------------
@@ -93,8 +127,40 @@ app.register_blueprint(data_bp)
 # fix-data / init-db are CLI-only now (no longer exposed over HTTP).
 register_cli(app)
 
-print("FRONTEND_BUILD:", FRONTEND_BUILD)
-print("FILES:", os.listdir(FRONTEND_BUILD) if os.path.exists(FRONTEND_BUILD) else "MISSING")
+
+# --- CSRF protection (audit §8.3 / §5.22) ---------------------------------
+# The app is same-origin in production (Flask serves the frontend) and uses no cookies /
+# sessions, so classic CSRF is low-risk here. As defense-in-depth we still reject any state-
+# changing request (POST/PUT/PATCH/DELETE) that does NOT carry the custom header
+# `X-Requested-With: XMLHttpRequest`. A browser cannot attach a custom header to a
+# cross-origin request without explicit CORS permission (which prod does not grant), so a
+# malicious third-party page can only issue a plain cross-site POST/PUT/DELETE — which we
+# now 403. GET/HEAD/OPTIONS/TRACE are exempt. See audit.md §5.22.
+@app.before_request
+def _csrf_protect():
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        if request.headers.get("X-Requested-With") != "XMLHttpRequest":
+            return jsonify({"error": "CSRF verification failed"}), 403
+
+
+# --- Custom error handlers (audit §8.7) ----------------------------------
+# In production the app must NOT echo exception messages back to the client (they can
+# leak internals / DB schema / file paths). We log the real error server-side and return a
+# generic JSON message. HTTP errors (404/405/…) keep their status code; everything else
+# becomes a 500 "Internal server error".
+@app.errorhandler(HTTPException)
+def _handle_http_exception(e):
+    return jsonify({"error": e.name}), e.code
+
+
+@app.errorhandler(Exception)
+def _handle_unhandled_exception(e):
+    logger.exception("Unhandled exception: %s", e)
+    return jsonify({"error": "Internal server error"}), 500
+
+
+logger.info("Frontend build dir: %s", FRONTEND_BUILD)
+logger.info("Frontend files: %s", os.listdir(FRONTEND_BUILD) if os.path.exists(FRONTEND_BUILD) else "MISSING")
 
 
 def open_browser():
@@ -102,6 +168,7 @@ def open_browser():
 
 
 if __name__ == "__main__":
+    _register_signal_handlers()  # audit §5.20 — graceful SIGINT/SIGTERM handling
     with app.app_context():
         # audit §4.8 — apply Alembic migrations first. For a fresh install `upgrade()`
         # creates the tables; for an existing dinner.db that is already stamped it is a
@@ -110,16 +177,16 @@ if __name__ == "__main__":
         try:
             upgrade()
         except Exception as e:
-            print("⚠️  Alembic upgrade unavailable, falling back to db.create_all():", e)
+            logger.warning("Alembic upgrade unavailable, falling back to db.create_all(): %s", e)
             db.create_all()
             try:
                 stamp("head")
             except Exception:
                 pass
 
-    print("📍 ROUTES REGISTERED:")
+    logger.info("Routes registered:")
     for rule in app.url_map.iter_rules():
-        print(rule)
+        logger.info("  %s", rule)
 
     threading.Timer(1.5, open_browser).start()
     app.run(debug=False)

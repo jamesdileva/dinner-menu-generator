@@ -1,0 +1,204 @@
+"""End-to-end smoke + regression tests against an isolated temp SQLite DB (audit §11).
+
+These cover the behaviours we've been building this week:
+- §4.4 health, §5.18 search/pagination, §5.14 category, §5.13 menu+grocery flow,
+- §8.3 CSRF header check, §8.7 generic 404/500 error responses,
+- §9.1 indexes (implicitly, via the queries that use them), §5.21 rate limiting.
+"""
+
+import pytest
+
+# Every state-changing request carries the CSRF header apiFetch sends (§8.3/§5.22).
+HDR = {"X-Requested-With": "XMLHttpRequest"}
+
+
+def _add(client, name, ingredients=None, category=None):
+    payload = {"name": name, "ingredients": ingredients or []}
+    if category:
+        payload["category"] = category
+    return client.post("/meal", json=payload, headers=HDR)
+
+
+def test_health(client):
+    r = client.get("/health")
+    assert r.status_code == 200
+    assert r.get_json() == {"status": "ok"}
+
+
+def test_404_is_generic(client):
+    r = client.get("/nope")
+    assert r.status_code == 404
+    assert r.get_json() == {"error": "Not Found"}
+
+
+def test_500_is_generic(client):
+    # §8.7 — unhandled exception must NOT leak internals to the client.
+    r = client.get("/__raise__")
+    assert r.status_code == 500
+    body = r.get_json()
+    assert body == {"error": "Internal server error"}
+    assert "RuntimeError" not in r.data.decode()
+
+
+def test_csrf_rejects_missing_header(client):
+    # §8.3 — a forged cross-site POST (no custom header) is rejected.
+    r = client.post("/meal", json={"name": "NoHeader"})
+    assert r.status_code == 403
+    assert r.get_json() == {"error": "CSRF verification failed"}
+
+
+def test_meal_crud_with_header(client, app):
+    from models import Meal, db
+
+    assert _add(client, "Burger", ["beef"], category="Dinner").status_code == 200
+    with app.app_context():
+        m = Meal.query.filter(Meal.name == "Burger").first()
+        mid = m.id
+
+    # update
+    assert client.put(
+        f"/meal/{mid}",
+        json={"name": "Cheeseburger", "ingredients": ["beef", "cheese"]},
+        headers=HDR,
+    ).status_code == 200
+    with app.app_context():
+        assert db.session.get(Meal, mid).name == "Cheeseburger"
+
+    # delete
+    assert client.delete(f"/meal/{mid}", headers=HDR).status_code == 200
+    with app.app_context():
+        assert db.session.get(Meal, mid) is None
+
+
+def test_meals_search_and_category(client, app):
+    # §5.18 search + §5.14 category filter
+    for i in range(3):
+        _add(client, f"Meal {i}", ["rice"], category="Dinner")
+    _add(client, "Salad", ["lettuce"], category="Lunch")
+
+    r = client.get("/meals?search=meal 1")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["total"] == 1
+    assert data["meals"][0]["name"] == "Meal 1"
+
+    r = client.get("/meals?category=dinner")
+    assert r.get_json()["total"] == 3
+
+    r = client.get("/meals?search=zzzznope")
+    assert r.get_json()["total"] == 0
+
+    r = client.get("/meals/categories")
+    assert set(r.get_json()["categories"]) == {"Dinner", "Lunch"}
+
+
+def test_menu_and_grocery_flow(client, app):
+    # §5.13 menu stores meal ids; §5.17 ingredients shown from the expanded menu.
+    for i in range(7):
+        _add(client, f"Meal {i}", ["rice", "chicken", "tomato"])
+    r = client.get("/menu/week")
+    assert r.status_code == 200
+    week = r.get_json()
+    assert set(week) == {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
+    # each day's meal now carries ingredients (§5.17)
+    assert week["Mon"]["ingredients"] == ["rice", "chicken", "tomato"]
+
+    r = client.get("/grocery")
+    assert r.status_code == 200
+    g = r.get_json()
+    # tomato -> Produce, chicken -> Protein, rice -> Grains (§5.10 categorize)
+    assert "Produce" in g and "Protein" in g and "Grains" in g
+
+
+@pytest.mark.slow
+def test_rate_limit_429(client):
+    # §5.21/§8.4 — default 120/min; the 121st request is rejected.
+    for _ in range(120):
+        assert client.get("/health").status_code == 200
+    assert client.get("/health").status_code == 429
+
+
+def test_grocery_extras_roundtrip(client):
+    # B3a — custom extras persist and fold into the categorized /grocery list.
+    for i in range(7):
+        _add(client, f"Meal {i}", ["rice", "chicken"])
+    assert client.get("/menu/week").status_code == 200
+
+    r = client.put("/grocery/extras", json={"items": ["oreos", "cereal"]}, headers=HDR)
+    assert r.status_code == 200
+    assert r.get_json()["extras"] == ["oreos", "cereal"]
+
+    e = client.get("/grocery/extras").get_json()
+    assert e == {"extras": ["oreos", "cereal"]}
+
+    g = client.get("/grocery").get_json()
+    assert "Snacks" in g and "Oreos" in [i["item"] for i in g["Snacks"]]  # oreos -> Snacks
+    assert "Grains" in g and "Cereal" in [i["item"] for i in g["Grains"]]  # cereal -> Grains
+
+
+def test_categorize_snacks_bucket():
+    # §5.10 / B3a — snack items bucket as Snacks; plain cereal stays Grains.
+    from utils import categorize_ingredient
+    assert categorize_ingredient("oreos") == "Snacks"
+    assert categorize_ingredient("cookies") == "Snacks"
+    assert categorize_ingredient("rice krispies") == "Snacks"
+    assert categorize_ingredient("cereal bar") == "Snacks"
+    assert categorize_ingredient("cereal") == "Grains"
+    assert categorize_ingredient("rice") == "Grains"
+
+
+def test_insights_requires_menu(client):
+    # B2 — no menus yet -> 400, not a 500.
+    r = client.get("/insights")
+    assert r.status_code == 400
+    assert r.get_json() == {"error": "Generate a menu first"}
+
+
+def test_insights_low_dairy_flag(client):
+    # B2 — beef/potato/broccoli meals, no dairy -> "low dairy" flag + suggestion.
+    for i in range(7):
+        _add(client, f"Steak {i}", ["beef", "potato", "broccoli"])
+    client.get("/menu/week")
+    client.get("/menu/week")
+
+    r = client.get("/insights")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["weeks_reviewed"] == 2
+    assert "low dairy" in data["flags"]
+    assert any("dairy" in s.lower() for s in data["suggestions"])
+
+
+def test_categorize_snacks_bucket():
+    # §5.10 / B3a — snack-y items bucket under Snacks, including substring-over-grain cases.
+    from utils import categorize_ingredient
+    assert categorize_ingredient("oreos") == "Snacks"
+    assert categorize_ingredient("cookies") == "Snacks"
+    assert categorize_ingredient("rice krispies") == "Snacks"
+    assert categorize_ingredient("cereal bar") == "Snacks"
+    assert categorize_ingredient("cereal") == "Grains"  # plain cereal stays Grains
+    assert categorize_ingredient("rice") == "Grains"
+
+
+def test_grocery_extras_and_snacks(client):
+    # B3a — custom extras round-trip via /grocery/extras and fold into /grocery.
+    for i in range(7):
+        _add(client, f"Meal {i}", ["rice", "chicken"])
+    assert client.get("/menu/week").status_code == 200
+
+    r = client.put("/grocery/extras", json={"items": ["oreos", "cereal"]}, headers=HDR)
+    assert r.status_code == 200
+    assert r.get_json()["extras"] == ["oreos", "cereal"]
+
+    g = client.get("/grocery").get_json()
+    assert "Snacks" in g
+    assert "Oreos" in [i["item"] for i in g["Snacks"]]   # oreos -> Snacks (qty 1)
+    assert "Cereal" in [i["item"] for i in g["Grains"]]  # cereal -> Grains (qty 1)
+
+    # extras endpoint reads back what was written
+    e = client.get("/grocery/extras").get_json()
+    assert e == {"extras": ["oreos", "cereal"]}
+
+    # extras flow into the text export too
+    txt = client.get("/grocery/export?format=text").get_data(as_text=True)
+    assert "Oreos" in txt and "Cereal" in txt and "Snacks" in txt

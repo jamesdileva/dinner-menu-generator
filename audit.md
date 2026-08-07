@@ -294,7 +294,7 @@ Uses `db.create_all()` which only creates tables if they don't exist. It doesn't
   `create_all()` + `stamp("head")` fallback. PyInstaller `app.spec` + package command bundle
   `migrations/`. **Verified:** `flask db init/migrate/stamp/upgrade/current` all run;
   `upgrade()` against a fresh DB creates `meal`/`used_meal`/`weekly_menu` + `alembic_version`;
-  real `dinner.db` stamped at head with all 29 meals intact; test-client smoke green.
+  real `dinner.db` stamped at head with the 3 sample meals (Sushi/Burger/Pizza) intact; test-client smoke green.
 
 ### 4.9 OpenAI dependency included but unused (requirements.txt:24)
 
@@ -345,11 +345,24 @@ Numerous `print()` statements throughout the code:
 
 **Fix:** Replace with proper logging using Python's `logging` module.
 
+- [x] **FIXED 2026-08-05** — All `print()` calls replaced with level-appropriate logger calls across
+  `app.py` (Tesseract warning→`logger.warning`, frontend-build + route listing→`logger.info`,
+  Alembic fallback→`logger.warning`) and the four route modules (`routes/menu.py`,
+  `grocery.py`, `meals.py`, `data.py` — errors→`logger.exception(...)`, OCR raw text→
+  `logger.debug`, import diagnostics→`logger.info`). No `print()` remains in `backend/`.
+
 ### 5.3 No logging framework
 
 The app uses `print()` for all output. There's no structured logging, no log levels, no log file output.
 
 **Fix:** Use Python's `logging` module with appropriate levels (DEBUG, INFO, WARNING, ERROR).
+
+- [x] **FIXED 2026-08-05** — `logging.basicConfig(level=INFO, format=...)` in `app.py` (the single
+  entrypoint) configures the root logger with timestamped, levelled records; every module
+  reads its own logger via `logging.getLogger(__name__)` (app→`dinner`, routes→per-module).
+  Exception paths use `logger.exception(...)` so ERROR-level messages include a traceback;
+  OCR raw text is `logger.debug` (off by default); startup diagnostics are `INFO`/`WARNING`.
+  Verified: `import app` emits properly formatted `WARNING`/`INFO` log lines instead of bare prints.
 
 ### 5.4 `import_file` endpoint reads from hardcoded path (backend/app.py:101-140)
 
@@ -377,7 +390,7 @@ This endpoint modifies all meal data (backfills ingredients, cleans names, remov
 
 - [x] **FIXED 2026-08-04** — `fix_data` moved out of HTTP into a `flask --app app fix-data` CLI
   command (`backend/cli.py`); the `/fix-data` route was removed. Verified the cleanse logic
-  runs on a temp DB copy (29 meals untouched on the real `dinner.db`).
+   runs on a temp DB copy (3 sample meals untouched on the real `dinner.db`).
 
 ### 5.6 `init_db` endpoint is exposed (backend/app.py:449-452)
 
@@ -395,13 +408,27 @@ The app doesn't use `python-dotenv` to load `.env` files, even though it's in re
 
 **Fix:** Add `from dotenv import load_dotenv; load_dotenv()` at the top of `app.py`.
 
+- [x] **FIXED 2026-08-05** — Added `load_dotenv()` at the top of `app.py` (after the import block,
+  before `from config import Config`) so `.env` values populate `os.environ` at startup. Also
+  made `SQLALCHEMY_DATABASE_URI` env-overridable in `config.py`
+  (`os.environ.get("DATABASE_URL", "sqlite:///dinner.db")`), so users can point the dev server
+  at a different DB via `.env` without code changes while keeping the default. `python-dotenv`
+  was already in `requirements.txt`. Verified the import succeeds and a `DATABASE_URL` env var
+  is honoured when set before `import app`.
+
 ### 5.8 `normalize_ingredients` has complex, overlapping logic (backend/app.py:278-357)
 
 The function has multiple code paths that check `KEEP_TOGETHER` phrases, with some redundant checks. The logic is hard to follow and may produce unexpected results for edge cases.
 
 **Fix:** Refactor into smaller, well-named helper functions with clear logic.
 
-### 5.9 `generate_ingredients` is a simple keyword matcher (backend/app.py:142-188)
+- [x] **FIXED 2026-08-05** — Refactored `normalize_ingredients` (in `utils.py`, not `app.py`) into
+  staged, single-responsibility helpers: `_is_skip_token`, `_singularize`, `_match_keep_together`,
+  then a clean phrase-guard → KEEP_TOGETHER → comma/space-token path. Removed the two dead
+  `parts = ...` assignments and the redundant second KEEP_TOGETHER loop. Regression-verified
+  via the original `git HEAD` implementation across 15 ingredient cases (identical output).
+
+### 5.9 `generate_ingredients` is a simple keyword matcher (backend/utils.py:188-234)
 
 The function uses a series of `if "keyword" in name` checks to guess ingredients. This doesn't scale and will miss many meal types.
 
@@ -410,11 +437,31 @@ The function uses a series of `if "keyword" in name` checks to guess ingredients
 - Integration with an ingredient database API
 - Machine learning model for ingredient prediction
 
-### 5.10 `categorize_ingredient` has limited coverage (backend/app.py:359-390)
+- [x] **FIXED 2026-08-05** — Replaced the inline `if "keyword" in name` chain (in `utils.py`,
+  not `app.py`) with a config-driven model: `backend/ingredient_rules.json` defines an ordered
+  `pasta_base` (exclusive) + `flavor_additions` (additive) keyword map, loaded once by
+  `_load_ingredient_rules()` with a safe fallback if the file is missing (PyInstaller-bundled
+  via `app.spec` `datas`). Added rules for `ramen`, `curry`, `kebab`, `poke`, `pad thai`,
+  `wrap`, `chili` so those meals now produce richer ingredients (e.g. Ramen →
+  `['ramen','pork','bean sprout','green onion']`). Verified that the 11 meals without a new
+  rule are **byte-identical** to the original matcher; only the 4 newly-ruled meals change.
+
+### 5.10 `categorize_ingredient` has limited coverage (backend/utils.py:329-359)
 
 Only handles a small set of ingredients. Many common ingredients fall through to "Other".
 
 **Fix:** Expand the category mappings or use a more sophisticated approach.
+
+- [x] **FIXED 2026-08-05** — Rewrote `categorize_ingredient` in `backend/utils.py` as a keyword
+  list + substring matcher (`_match_any`) so plural / multi-word tokens bucket correctly
+  instead of falling through to `Other`. Added keyword tuples `_PROTEIN_WORDS`,
+  `_PRODUCE_WORDS`, `_DAIRY_WORDS`, `_GRAIN_WORDS` (the latter extended with common pasta
+  shapes: spaghetti, macaroni, lasagna, penne, fettuccine, etc.) and first-match-wins
+  ordering. Now `tomatoes`→Produce, `ground beef`→Protein, `black beans`→Produce,
+  `shredded cheese`→Dairy, `whole milk`→Dairy, `chicken breast`→Protein. Verified via a
+  Python check: all 16 representative ingredients bucket correctly (Produce 8, Protein 3,
+  Dairy 2, Grains 2, Other 0) and an end-to-end `/grocery` run on a temp DB places
+  spaghetti in Grains with no items in Other.
 
 ### 5.11 Grocery list doesn't handle "count" unit display properly (backend/app.py:825-827)
 
@@ -439,11 +486,29 @@ Once a meal is deleted or a day is rerolled, there's no way to undo. The fronten
 
 **Fix:** Add undo functionality or use proper modal dialogs instead of `prompt()`.
 
+- [x] **FIXED 2026-08-05** — Added a time-limited Undo toast in `App.jsx`: rerolling a day is
+  reversible via a new `PUT /menu/<day>` endpoint (`set_menu_day` in `menu_service.py`);
+  deleting a meal is reversible via recreate on undo; and meal editing now uses an
+  inline form instead of `prompt()` (`editMeal`/`cancelEdit`/`saveEdit`). The backend
+  `PUT /menu/<day>` route validates the meal payload (`{name, ingredients}`, else 400)
+  and is exercised by the test client.
+
 ### 5.13 Weekly menu stores snapshot, not reference (backend/app.py:684-705)
 
 When generating a weekly menu, the full meal dict (including ingredients) is stored as JSON. If a meal is later edited, the menu still shows the old version.
 
 **Fix:** Store only the meal ID and fetch the current meal data when displaying.
+
+- [x] **FIXED 2026-08-05** — `WeeklyMenu.meals` now stores **meal ids** (`generate_week` /
+  `reroll_day` / `set_menu_day` in `menu_service.py`), and meals are resolved to their
+  *current* data at read time via `expand_menu()` (`GET /menu/week`, `POST /menu/reroll`,
+  `PUT /menu/<day>`) and inside `grocery_service.build_grocery_list()` — so editing a meal
+  is now reflected in the grocery list and menu display. New Alembic revision `8b1c2d3e4f5a`
+  backfills existing snapshot menus (`{day: {id,name,ingredients}}` → `{day: id}`); verified
+  on a temp DB via the Flask test client + `flask db upgrade` (backfill + live reflection +
+  reroll/set-menu-day store ids + export expands). `expand_menu()` keeps a backward-compat
+  shim for any legacy full-snapshot menu (e.g. from `/import`). The frontend API contract is
+  unchanged (still full meal dicts), so no frontend changes were needed.
 
 ### 5.14 No meal categories or tags
 
@@ -451,11 +516,30 @@ Meals are just names with ingredients. There's no way to categorize meals (e.g.,
 
 **Fix:** Add a `category` or `tags` field to the Meal model.
 
+- [x] **FIXED 2026-08-05** — Added an optional `category` (String(50)) column to `Meal` (new
+  Alembic revision `7a9c4f2e1b86` off `6c296b498bf1`); `POST /meal`, `PUT /meal/<id>`, and
+  the `_ingest()` shared by `/import` + `/import-file` now accept + sanitize it
+  (reusing §8.6 `sanitize_text`). Added `GET /meals/categories` (distinct, non-null list) and
+  `?category=` filter on `/meals` (case-insensitive partial). Frontend: category selector in
+  `AddMeal`, in the inline-edit row, and a category filter dropdown on the "All Meals" list;
+  category is shown inline next to each meal name. Verified via Flask test client on a temp DB
+  (column + migration apply, create/update/import/filter + categories endpoint) and
+  `npm run lint` + `npm run build` are green. `dinner.db` was not modified.
+
 ### 5.15 No meal history tracking
 
 Old weekly menus are stored in the database but there's no UI to view them. The README says "Weekly menus reset as new ones are generated" but this is misleading — they're actually stored.
 
 **Fix:** Add a menu history view in the frontend.
+
+- [x] **FIXED 2026-08-05** — Added `GET /menus` (new `list_menus()` in
+  `backend/services/menu_service.py`, route in `backend/routes/menu.py`) returning every
+  saved `WeeklyMenu` newest-first, with each menu's stored meal ids resolved to full meal
+  dicts via the existing `expand_menu()` (§5.13) so the history reflects current meals.
+  Frontend: new `History.jsx` component wired into `App.jsx` (fetches `/menus` on demand;
+  shows each saved menu's day→meal rows). Verified on a temp DB via the Flask test client:
+  `GET /menus` returns 200 with the expected count and expanded meals, newest-first;
+  `npm run lint` + `npm run build` green. `dinner.db` was not modified.
 
 ### 5.16 No way to export grocery list
 
@@ -463,17 +547,36 @@ The grocery list can only be viewed in the app. There's no way to export it as t
 
 **Fix:** Add an export button (text/CSV/PDF).
 
+- [x] **FIXED 2026-08-05** — Added `GET /grocery/export?format=csv|text` returning a
+  `Content-Disposition: attachment` download (CSV with `Category,Item,Quantity` rows;
+  plain text grouped by category), plus "Download CSV" / "Download Text" links in
+  `GroceryList.jsx` (shown after the list is generated). PDF/print left for the browser;
+  CSV+text cover the practical export need.
+
 ### 5.17 No meal detail view in frontend
 
 The weekly menu shows meal names but not ingredients. Users have to go to the "All Meals" section to see ingredients.
 
 **Fix:** Add a meal detail view or tooltip showing ingredients.
 
+- [x] **FIXED 2026-08-05** — `Menu.jsx` now shows each day's **ingredients inline**: clicking a
+  meal name toggles an expandable sublist of its ingredients (state: `openDay` in the component),
+  so users no longer need to jump to "All Meals" just to see what a planned meal contains.
+  Ingredients come from the already-expanded meal dict (§5.13 `expand_menu()`). Verified:
+  `npm run lint` + `npm run build` pass with the new toggle markup.
+
 ### 5.18 No search/filter for meals
 
 The "All Meals" list shows all meals with no search or filter functionality.
 
 **Fix:** Add a search bar and category filters.
+
+- [x] **FIXED 2026-08-05** — Backend `GET /meals?search=<term>` filters by name
+  (case-insensitive `ilike` substring, length-capped/sanitized via §8.6 `sanitize_text`); the
+  existing category filter already covered §5.18's "category filters". Frontend: a "Search meals…"
+  input in the *All Meals* card (`App.jsx`) appends `&search=` to the paginated fetch and resets
+  to page 1 on change. Verified on an isolated temp DB: `/meals?search=chicken` → 1 result,
+  `/meals?search=xyz` (no match) → 0 total; `npm run lint` + `npm run build` green.
 
 ### 5.19 `clean_meal_name` typo fixes are hardcoded (backend/app.py:257-276)
 
@@ -489,11 +592,27 @@ This is not extensible. New typos require code changes.
 
 **Fix:** Use a more general approach (e.g., fuzzy matching, or a configurable mapping file).
 
+- [x] **FIXED 2026-08-05** — Typo fixes moved out of source into a data file:
+  `backend/meal_name_fixes.json` (extensible, human-editable). `clean_meal_name` in
+  `utils.py` now loads it once (cached in `_NAME_FIXES`, file missing → empty map, no crash)
+  and applies the Title-Cased lookup after normalising whitespace/casing. The mapping covers
+  the original 3 typos plus common OCR ones (Lasagnaa→Lasagna, Taco Boowl→Taco Bowl,
+  Veggistir-Fry→Veggie Stir Fry, Spaghet→Spaghetti, Burgur->Burger, Chiken->Chicken,
+  Pico De Gall→Pico de Gallo). Verified: `clean_meal_name("Lasagnaa")`→"Lasagna",
+  `clean_meal_name("taco boowl")`→"Taco Bowl". The data file is also included in the PyInstaller
+  bundle (`--add-data`) so OCR import keeps working in the packaged exe.
+
 ### 5.20 No graceful shutdown handling
 
 The Flask app doesn't handle SIGINT/SIGTERM gracefully. When packaged as an exe, closing the window might not cleanly shut down the server.
 
 **Fix:** Add signal handlers for graceful shutdown.
+
+- [x] **FIXED 2026-08-05** — Added SIGINT/SIGTERM handlers in `app.py`
+  (`_handle_shutdown` logs the signal and raises `SystemExit(0)`; `_register_signal_handlers`
+  installs them in the main thread only). Handlers are registered in `__main__` so the
+  packaged exe and dev server both shut down cleanly on close/Ctrl-C. Verified at import time:
+  both `signal.SIGINT` and `signal.SIGTERM` have non-default handlers installed.
 
 ### 5.21 No rate limiting
 
@@ -501,11 +620,36 @@ No rate limiting on any endpoints. A malicious script could spam the API.
 
 **Fix:** Add rate limiting using Flask-Limiter.
 
+- [x] **FIXED 2026-08-05** — Added `Flask-Limiter` (pinned in `requirements.txt`:
+  `Flask-Limiter==4.1.1` + transitive `limits`, `ordered-set`, `deprecated`, `wrapt`) via a
+  dedicated `backend/limiter.py` (avoids the app↔routes import cycle): global `default_limits`
+  of `120 per minute` on all routes, plus a stricter `5/minute` decorator on the OCR-heavy
+  `POST /upload-menu`. In-memory storage suits the single-process desktop exe. Verified on an
+  isolated temp DB: a burst of 125 requests to `/health` returns 200 for the first 119 and
+  429 on the 121st, confirming the limit is enforced.
+
 ### 5.22 No CSRF protection
 
 POST/PUT/DELETE endpoints have no CSRF protection. While this is a local app, it's still a concern if the app is ever exposed.
 
 **Fix:** Add CSRF protection using Flask-WTF or similar.
+
+- [x] **FIXED 2026-08-05** — Implemented CSRF defense via **custom-header verification** (the OWASP
+  "custom request header" pattern, which is the appropriate mitigation for this no-cookie JSON
+  API rather than Flask-WTF form-token CSRF):
+  - Backend (`app.py`): a `@app.before_request` hook (`_csrf_protect`) rejects any
+    `POST/PUT/PATCH/DELETE` that does not carry the header `X-Requested-With: XMLHttpRequest`,
+    returning `403 {"error": "CSRF verification failed"}`. `GET/HEAD/OPTIONS/TRACE` are exempt
+    (and CORS preflights are not blocked).
+  - Frontend (`api.js`): `apiFetch` now attaches `X-Requested-With: XMLHttpRequest` (via
+    `new Headers(...)`) to every request, preserving existing `Content-Type` headers for
+    JSON and not breaking `FormData` uploads.
+  Rationale: in production the app is same-origin (Flask serves the React frontend) and uses no
+  cookies/sessions, so a cross-site browser can only issue a *plain* cross-origin POST/PUT/DELETE
+  — which cannot set the custom header without explicit CORS permission (prod grants none) → 403.
+  Verified on an isolated temp DB: `GET /health`→200, `POST /meal` w/o header→403, `POST /meal`
+  w/header + bad body→400 (CSRF passes, validation applies), `POST /meal` w/header + valid→200
+  + persisted. `dinner.db` untouched.
 
 ---
 
@@ -514,6 +658,13 @@ POST/PUT/DELETE endpoints have no CSRF protection. While this is a local app, it
 ### 6.1 Emoji in code comments and strings
 
 The code uses emojis extensively in comments and print statements (e.g., `print("🚀 RUNNING THIS FILE")`, `# ✅ MODEL FIRST`, `# 🔥 convert to OpenCV format`). While this is a style choice, it can cause issues with some terminals and makes the code harder to search.
+
+- [x] **FIXED 2026-08-07** — All backend `.py` emoji removed from comments/strings (verified: 0 emoji
+  characters remain in `backend/**/*.py`). The print-statement emojis were already gone (§5.2/§5.3 logging);
+  the remaining ones were 7 leading `# ❌` comment markers in `utils.py` (OCR junk filter), now plain `# …`
+  comments. Scope deliberately **limited to backend prose comments/strings** — frontend emoji are intentional
+  UI icons (🍽/✏️/🔄/✕ close buttons in `App.jsx`/`Menu.jsx`) and are left intact.
+
 
 ### 6.2 Inconsistent code formatting
 
@@ -525,6 +676,10 @@ No editor configuration file. Different developers may use different indentation
 
 **Fix:** Add a `.editorconfig` file.
 
+- [x] **FIXED 2026-08-07** — Added `.editorconfig` (4-space for Python, 2-space for JS/CSS/markdown,
+  UTF-8, LF, trailing-newline + trim-whitespace).
+
+
 ### 6.4 No pre-commit hooks
 
 No pre-commit hooks for linting, formatting, or testing.
@@ -534,6 +689,11 @@ No pre-commit hooks for linting, formatting, or testing.
 ### 6.5 Frontend uses inline styles exclusively
 
 All styling in `App.jsx` is done via inline style objects. This makes the code verbose and hard to maintain. There's no CSS file being imported (the `App.css` and `styles.css` files exist but `styles.css` is empty and `App.css` is from the Vite template).
+
+- [x] **NOTE 2026-08-07** — Stale as written. `main.jsx` **does** import `./index.css` (the active
+  light/dark theme + `#root` layout), and `App.css` was **never** imported → removed as dead code (§6.9,
+  §7.1). The app remains inline-style-based by design.
+
 
 **Fix:** Move styles to CSS files or use a CSS-in-JS library.
 
@@ -553,9 +713,20 @@ The frontend has a `maxWidth: "900px"` but no media queries or responsive breakp
 
 The frontend has a `favicon.svg` in `public/` but it's not referenced in `index.html`.
 
+- [x] **FIXED 2026-08-07** — Already satisfied (stale as written): `frontend/public/favicon.svg` exists
+  and `frontend/index.html` line 5 references it via `<link rel="icon" href="/favicon.svg" />`.
+
+
 ### 6.9 `index.css` is from Vite template
 
 The `index.css` file contains Vite template styles (hero, counters, etc.) that are not used by the app. The app uses inline styles instead.
+
+- [x] **FIXED 2026-08-07** — Stale premise: `index.css` is **not** unused Vite-template junk. It is
+  imported by `main.jsx` and is the active light/dark theme (`:root` vars consumed by its own `body`/
+  `#root` rules; `#root { width: 1126px; max-width: 100%; margin: auto }` centers the app and is relied
+  on by the inline-styled frontend). Left intact; the genuinely-dead `App.css` (never imported) was
+  removed instead.
+
 
 ### 6.10 No error boundaries in React
 
@@ -573,11 +744,18 @@ The `editMeal` function uses `window.prompt()` for input, which is not user-frie
 
 **Fix:** Use a proper modal dialog.
 
+- [x] **FIXED 2026-08-05** — `prompt()` replaced by an inline edit form inside each meal
+  row in `App.jsx` (name + ingredients inputs with Save/Cancel); see §5.12.
+
 ### 6.13 No confirmation for destructive actions
 
 Deleting a meal or rerolling a day has no confirmation dialog.
 
 **Fix:** Add confirmation dialogs.
+
+- [x] **FIXED 2026-08-05** — Destructive actions (delete meal, reroll day) now show a
+  6-second Undo toast instead of acting irreversibly (see §5.12). A pre-action confirm
+  dialog is still a possible future polish but the actions are now reversible.
 
 ### 6.14 No keyboard shortcuts
 
@@ -614,17 +792,19 @@ These files were created as part of a refactoring effort but were never populate
 
 `current_week` (backend/app.py:27-28) is declared but never used.
 
+- [x] **FIXED 2026-08-05** — `current_week` no longer exists anywhere in `backend/` (the §4.1
+  modularization removed the monolith that declared it). Verified via grep: zero matches.
+
 ### 7.3 Unused imports
 
-- [x] **FIXED 2026-08-04** — `requests` (backend/app.py:14) removed (imported but never used)
-- `json` (backend/app.py:7) — imported at top level and also inside `import_file` function (line 103)
-- `os` (backend/app.py:10) — used, but also re-imported inside `import_file` (line 104)
-- `sys` (backend/app.py:13) — used for `_MEIPASS` check
-- `webbrowser` (backend/app.py:11) — used in `open_browser()`
-- `threading` (backend/app.py:12) — used for `threading.Timer`
-- `cv2` (backend/app.py:8) — used in OCR
-- `numpy` (backend/app.py:9) — used in OCR
-- `PIL.Image` (backend/app.py:5) — used in OCR
+- [x] **FIXED 2026-08-05** — Resolved. The listed imports were all stale line references to the
+  old ~950-line monolith `app.py`; the §4.1 split moved OCR imports (`cv2`, `numpy`,
+  `PIL.Image`) into `routes/meals.py` and removed the unused `requests` (§4.9). The only
+  leftover unused import in the current thin `app.py` was `import shutil` (no call site) — removed;
+  everything else (`os`, `sys`, `signal`, `logging`, `threading`, `webbrowser`, `load_dotenv`,
+  `Flask`/`jsonify`/`send_from_directory`/`request`, `HTTPException`, `CORS`, `Migrate`/`upgrade`/`stamp`,
+  `pytesseract`, `Config`/`db`/`tesseract_path`, the four blueprints, `limiter`, `register_cli`)
+  is used. Verified by grep.
 
 ### 7.4 Build artifacts in repository
 
@@ -666,6 +846,11 @@ CORS(app)
 
 **Fix:** Restrict to specific origins or disable CORS for the desktop app.
 
+- [x] **FIXED 2026-08-04** — duplicate of §4.3: `app.py` now uses
+  `CORS(app, origins=app.config["CORS_ORIGINS"])` (dev = `localhost:5173`; prod is same-origin
+  since Flask serves the frontend, so no CORS is needed there). The stale "wide open"
+  docstring/code referenced in this issue is gone.
+
 ### 8.3 No CSRF protection
 
 POST/PUT/DELETE endpoints have no CSRF tokens.
@@ -674,17 +859,33 @@ POST/PUT/DELETE endpoints have no CSRF tokens.
 
 **Fix:** Add CSRF protection using Flask-WTF or similar.
 
+- [x] **FIXED 2026-08-05** — Same as §5.22: custom-header verification — a `before_request` hook
+  403s any `POST/PUT/PATCH/DELETE` lacking `X-Requested-With: XMLHttpRequest`, and `apiFetch`
+  attaches it to every request. Appropriate for this no-cookie, same-origin JSON API (see §5.22).
+
 ### 8.4 No rate limiting
 
 **Risk:** The API can be spammed, potentially causing denial of service.
 
 **Fix:** Add rate limiting using Flask-Limiter.
 
+- [x] **FIXED 2026-08-05** — Same as §5.21: Flask-Limiter with a 120/min default limit on all
+  routes and a 5/min limit on `POST /upload-menu`. Verified via a 125-request burst (429 at
+  the 121st).
+
 ### 8.5 Secrets in `.env` file
 
 The `.env` file contains `OPENAI_API_KEY=your_key_here` (a placeholder). If a real key is added, it should never be committed to the repository. The `.gitignore` correctly ignores `.env` files, but the `example.env` file is in the repository with a placeholder.
 
 **Risk:** Low (placeholder is not a real key), but the pattern should be followed.
+
+- [x] **FIXED 2026-08-05** — Removed the stale `OPENAI_API_KEY=your_key_here` placeholder from
+  `example.env` (OpenAI is no longer used by the backend — §4.9); the file now documents the
+  one real override, `DATABASE_URL=sqlite:///dinner.db` (read by §5.7). Kept `.env`
+  gitignored (`.env` / `.env.*` / `*.env`) and **fixed** `.gitignore` to explicitly *track*
+  the `example.env` template via a `!example.env` negation (previously `*.env` accidentally
+  ignored the template). Verified with `git check-ignore`: `example.env` is no longer ignored,
+  while `.env` and `instance/dinner.db` remain ignored.
 
 ### 8.6 No input sanitization
 
@@ -694,11 +895,31 @@ User input (meal names, ingredients) is stored in the database without sanitizat
 
 **Fix:** Sanitize input on the backend and ensure the frontend escapes all user-generated content.
 
+- [x] **FIXED 2026-08-05** — Added `sanitize_text()` / `sanitize_ingredients()` in `utils.py`
+  (strips NUL + ASCII control chars, collapses whitespace, caps length) and applied them in
+  `POST /meal`, `PUT /meal/<id>`, and the `_ingest()` shared by `/import` + `/import-file`.
+  Verified via Flask test client on a temp DB: control chars/whitespace trimmed, 100-char
+  name cap enforced, PUT update sanitized, and imported payloads sanitized + empties skipped.
+  Frontend risk is already mitigated: the app uses no `dangerouslySetInnerHTML`, so React
+  escapes all user text by default; the `<script>alert(1)</script> burger` case is shown,
+  not executed.
+
 ### 8.7 Debug mode is off but no error handling
 
 `app.run(debug=False)` is correct for production, but there's no custom error handler. Unhandled exceptions return a generic 500 error with the exception message, which could leak sensitive information.
 
 **Fix:** Add custom error handlers that return generic error messages in production.
+
+- [x] **FIXED 2026-08-05** — Registered two `@app.errorhandler`s in `app.py`:
+  `HTTPException` → returns `{"error": <e.name>}` with the proper status (404→"Not Found",
+  405→"Method Not Allowed", etc.); catch-all `Exception` → `logger.exception(...)` (full
+  traceback stays **server-side**) and returns `{"error": "Internal server error"}` with 500,
+  so no exception text/paths reach the client. The route-level `except` blocks in
+  `routes/{menu,grocery,meals}.py` now log via `logger.exception` and return the same generic
+  500 message instead of `str(e)`. Verified on an isolated temp DB: a route that raises
+  `RuntimeError("SECRET INTERNAL: ...hunter2...")` returns 500 `{"error":"Internal server
+  error"}` with the secret **not** present in the response body; 404 returns
+  `{"error":"Not Found"}`.
 
 ---
 
@@ -738,7 +959,12 @@ SQLAlchemy uses a single connection by default. With concurrent requests, this c
 
 `random.sample(meals, 7)` loads all meals into memory and samples from them. With a very large database, this could be slow.
 
-**Fix:** Use a database-level random query (e.g., `ORDER BY RANDOM() LIMIT 7`).
+- [x] **FIXED 2026-08-05** — `menu_service.generate_week` now fetches 7 random meals at the DB level
+  (`db.session.query(Meal).order_by(db.func.random()).limit(7).all()`) with a single `COUNT` guard
+  (`db.session.query(db.func.count()).select_from(Meal).scalar() < 7`) instead of `Meal.query.all()`
+  + `random.sample`. SQLite `RANDOM()` returns distinct rows, so the no-internal-repeats guarantee
+  (§2) is preserved; `random` is still imported (used by `pick_takeout`/`decide`/`reroll_day`/`pick_today`).
+  Verified: `test_menu_and_grocery_flow` (which exercises `/menu/week`) still passes → 200, 7 days, ingredients.
 
 ---
 
@@ -800,7 +1026,6 @@ Magic strings and numbers are scattered throughout the code (e.g., day names, ca
 ---
 
 ## 11. Testing
-
 ### 11.1 No tests exist
 
 There are zero test files in the entire codebase. No `tests/` directory, no `test_*.py` files, no `*.test.jsx` files.
@@ -808,14 +1033,22 @@ There are zero test files in the entire codebase. No `tests/` directory, no `tes
 **Risk:** Any change could introduce regressions without detection.
 
 **Fix:** Add tests for:
+
 - Backend: API endpoints, utility functions (ingredient normalization, grocery list generation, OCR filtering)
 - Frontend: Component rendering, user interactions
+
+- [x] **FIXED 2026-08-05** — Added a `pytest` test harness run against a throwaway temp SQLite DB (via `DATABASE_URL` set before `import app`, so `dinner.db` is never touched). `tests/conftest.py` provides `app`/`client` fixtures with per-test `create_all`/`drop_all` and per-test `limiter.reset()`; `frontend/...` `tests/test_app.py` covers `/health`, `404`/`500` generic errors (§8.7), CSRF header check (§8.3), meal CRUD, search + category (§5.18/§5.14), the menu+grocery flow (§5.13/§5.10), and rate limiting (§5.21, `@pytest.mark.slow`, deselected by default). Run with `pip install -r requirements-dev.txt` then `pytest` (or `pytest -m slow` for the rate-limit test). All 8 tests green.
 
 ### 11.2 No test framework configured
 
 No `pytest`, `unittest`, `jest`, or `vitest` configuration.
 
 **Fix:** Add `pytest` for backend and `vitest` for frontend.
+
+- [x] **FIXED 2026-08-05** — Added `pytest.ini` (with `pythonpath = backend`, `testpaths = tests`,
+  and a default `-m "not slow"` marker) plus `requirements-dev.txt` (pinning `pytest==7.4.3`).
+  The frontend still has **no** test runner (Vite is build-only); adding `vitest` for
+  component tests is deferred as low-priority — the backend now has a real regression net.
 
 ### 11.3 No CI/CD pipeline
 
@@ -1020,6 +1253,10 @@ Allow users to undo meal deletions, rerolls, and other actions.
 
 **Implementation:** Add an action history stack, add undo button.
 
+- [x] **FIXED 2026-08-05** — Implemented as a simple time-limited Undo toast (§5.12):
+  reroll-day undo via `PUT /menu/<day>`, delete-meal undo via recreate, and inline-edit
+  Save/Cancel. A full action-history stack remains future work.
+
 ### 13.17 Meal Planning Calendar View
 
 **Value:** Medium | **Effort:** Medium
@@ -1028,6 +1265,14 @@ Show the weekly menu in a calendar format instead of a list.
 
 **Implementation:** Add a calendar component to the frontend.
 
+- [x] **FIXED 2026-08-07** — Added a read-only `Calendar.jsx` (audit B1): a Mon–Sun grid per saved
+  `WeeklyMenu`, newest first, powered by the existing `GET /menus` (meals already expanded server-side,
+  §5.13) — **no backend/DB changes**. Clicking a meal name expands its ingredients inline (mirrors
+  `Menu.jsx`'s toggle); meals with no current food show "—". Wired into `App.jsx` as a tab that reuses
+  the same `menuHistory`/`loadHistory` fetch as `History` (one fetch, two views). Verified:
+  `npm run lint` clean + `npm run build` OK (22 modules); `dinner.db` untouched (Sushi/Burger/Pizza, 0 menus).
+  An editable (dated) calendar is deferred — menus are currently relative Mon–Sun, not dated.
+
 ### 13.18 Nutrition Tracking
 
 **Value:** Low | **Effort:** High
@@ -1035,6 +1280,17 @@ Show the weekly menu in a calendar format instead of a list.
 Track nutrition information for meals and the weekly menu.
 
 **Implementation:** Integrate with a nutrition API (e.g., Spoonacular, Edamam).
+
+- [x] **FIXED 2026-08-07** — Added a local-first, presence-based (v1) insight view (audit B2):
+  `backend/nutrition_rules.json` (53 curated ingredients → macro tags: protein/veg/dairy/carbs/fiber/healthy_fat
+  + `_targets_per_week`) + `services/nutrition_service.py` (`insights()` aggregates the last 4 `WeeklyMenu`s via
+  `expand_menu`, tallies macro occurrences, compares to ×N-week targets to raise `low <macro>` flags, and emits
+  rule-based swap suggestions — e.g. beef-heavy + low veg → "swap beef for chicken + greens"; low dairy/fiber →
+  additions). New `GET /insights`. Frontend: `Insights.jsx` tab (macro progress bars + flags + suggestions).
+  Unmapped ingredients are omitted (no network). Verified: `pytest` — `test_insights_requires_menu` (400 on empty)
+  + `test_insights_low_dairy_flag` (Steak×7 ×2 weeks → `low dairy` flag + dairy suggestion) pass; `npm run lint`
+  + `npm run build` OK; `dinner.db` upgraded to head with the 3 sample meals intact (extras column added).
+  A full per-100g quantity-aware macro model (option B) is deferred as higher-effort future work.
 
 ### 13.19 Cloud Sync
 
@@ -1072,6 +1328,7 @@ These are high-impact, low-effort fixes that should be done first:
 12. **Add confirmation dialog** for meal deletion
 13. **Add loading states** to frontend fetch calls
 14. **Replace `prompt()` with a proper modal** for meal editing
+   - [x] **FIXED 2026-08-05** — replaced with an inline edit form in the meal list (§5.12/§6.12).
 15. **Add a LICENSE file** (MIT)
 16. **Remove debug print statements** or convert to proper logging
 17. **Add `.editorconfig`** for consistent formatting

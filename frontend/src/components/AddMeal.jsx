@@ -30,7 +30,7 @@ const btn = {
   cursor: "pointer"
 };
 
-export default function AddMeal({ name, ingredients, onNameChange, onIngredientsChange, onAdd, onUpload }) {
+export default function AddMeal({ name, ingredients, category, categories, onNameChange, onIngredientsChange, onCategoryChange, onAdd, onUpload }) {
   return (
     <div style={card}>
       <h2>Add Meal</h2>
@@ -40,6 +40,12 @@ export default function AddMeal({ name, ingredients, onNameChange, onIngredients
         value={name}
         onChange={onNameChange}
       />
+      <select style={input} value={category || ""} onChange={onCategoryChange}>
+        <option value="">(no category)</option>
+        {categories.map((c) => (
+          <option key={c} value={c}>{c}</option>
+        ))}
+      </select>
       <input
         style={input}
         placeholder="Ingredients (comma separated)"

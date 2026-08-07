@@ -10,6 +10,7 @@ Blueprint: `meals_bp`
 
 import io
 import json
+import logging
 
 import cv2
 import numpy as np
@@ -23,10 +24,14 @@ from utils import (
     clean_meal_name,
     generate_ingredients,
     normalize_ingredients,
+    sanitize_text,
+    sanitize_ingredients,
     tesseract_path,
 )
+from limiter import limiter  # audit §5.21 — per-route rate limit (OCR is heavier)
 
 meals_bp = Blueprint("meals_bp", __name__)
+logger = logging.getLogger(__name__)
 
 
 @meals_bp.route("/meals", methods=["GET"])
@@ -35,17 +40,37 @@ def get_meals():
     limit = request.args.get("limit", 50, type=int)
     limit = min(max(limit, 1), 100)
 
-    pagination = Meal.query.order_by(Meal.name.asc()).paginate(
-        page=page, per_page=limit
-    )
+    query = Meal.query
+    category = request.args.get("category")
+    if category:  # §5.14 filter meals by category (case-insensitive)
+        cat = sanitize_text(category, max_len=50)
+        if cat:
+            query = query.filter(Meal.category.ilike(f"%{cat}%"))
+
+    search = request.args.get("search")
+    if search:  # §5.18 search by name (case-insensitive substring)
+        s = sanitize_text(search, max_len=100)
+        if s:
+            query = query.filter(Meal.name.ilike(f"%{s}%"))
+
+    pagination = query.order_by(Meal.name.asc()).paginate(page=page, per_page=limit)
 
     return jsonify({
         "meals": [m.to_dict() for m in pagination.items],
         "page": page,
         "limit": limit,
         "total": pagination.total,
-        "pages": pagination.pages
+        "pages": pagination.pages,
+        "search": search or ""
     })
+
+
+@meals_bp.route("/meals/categories", methods=["GET"])
+def get_meal_categories():
+    """Distinct, non-empty meal categories (for the frontend filter dropdown). §5.14"""
+    rows = db.session.query(Meal.category).filter(Meal.category.isnot(None)).distinct().all()
+    categories = sorted([r[0] for r in rows if r[0]])
+    return jsonify({"categories": categories})
 
 
 @meals_bp.route("/meal", methods=["POST"])
@@ -56,8 +81,12 @@ def add_meal():
     if not raw_name or not raw_name.strip():
         return jsonify({"error": "Meal name is required"}), 400
 
-    name = raw_name.strip()
-    normalized = raw_name.strip().lower()
+    # §8.6 sanitize storage name: strip control chars, collapse whitespace, cap length
+    name = sanitize_text(raw_name.strip(), max_len=100)
+    if not name:
+        return jsonify({"error": "Meal name is required"}), 400
+
+    normalized = name.lower()
 
     existing = Meal.query.filter(
         db.func.lower(Meal.name) == normalized
@@ -66,9 +95,10 @@ def add_meal():
     if existing:
         return jsonify({"error": "Meal already exists"}), 400
 
-    ingredients = normalize_ingredients(data.get("ingredients", []))
+    ingredients = normalize_ingredients(sanitize_ingredients(data.get("ingredients", [])))
+    category = sanitize_text(data.get("category", ""), max_len=50)  # §5.14
 
-    meal = Meal(name=name, ingredients=ingredients)
+    meal = Meal(name=name, ingredients=ingredients, category=category or None)
     db.session.add(meal)
     db.session.commit()
 
@@ -81,9 +111,14 @@ def update_meal(id):
     if not meal:
         return jsonify({"error": "Meal not found"}), 404
 
-    data = request.json
-    meal.name = data.get("name", meal.name)
-    meal.ingredients = data.get("ingredients", meal.ingredients)
+    data = request.get_json(silent=True) or {}
+    # §8.6 sanitize + normalise stored fields (control char / whitespace / length bounds)
+    if "name" in data:
+        meal.name = sanitize_text(data.get("name"), max_len=100)
+    if "ingredients" in data:
+        meal.ingredients = normalize_ingredients(sanitize_ingredients(data.get("ingredients", [])))
+    if "category" in data:  # §5.14
+        meal.category = sanitize_text(data.get("category"), max_len=50) or None
     db.session.commit()
 
     return jsonify({"success": True})
@@ -102,6 +137,7 @@ def delete_meal(id):
 
 
 @meals_bp.route("/upload-menu", methods=["POST"])
+@limiter.limit("5/minute")  # audit §8.4 — protect the OCR/Tesseract endpoint
 def upload_menu():
     try:
         if "image" not in request.files:
@@ -150,7 +186,7 @@ def upload_menu():
             }), 503
 
         text = pytesseract.image_to_string(thresh, config=config)
-        print("RAW OCR:", text)
+        logger.debug("RAW OCR:\n%s", text)
 
         # split into lines FIRST, then filter
         lines = [line.strip() for line in text.split("\n") if line.strip()]
@@ -200,5 +236,5 @@ def upload_menu():
         })
 
     except Exception as e:
-        print("ERROR:", e)
-        return jsonify({"error": str(e)}), 500
+        logger.exception("ERROR /upload-menu")
+        return jsonify({"error": "Internal server error"}), 500

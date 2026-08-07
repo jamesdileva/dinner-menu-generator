@@ -6,8 +6,8 @@ Ports the aggregation/quantity-parsing/categorisation that lived inline in the
 
 import re
 
-from models import WeeklyMenu
-from utils import INGREDIENT_MAP, parse_quantity, categorize_ingredient, pluralize_word
+from models import Meal, WeeklyMenu, db
+from utils import INGREDIENT_MAP, parse_quantity, categorize_ingredient, pluralize_word, sanitize_text
 
 
 # common units to intercept while parsing ingredient strings
@@ -29,7 +29,17 @@ def build_grocery_list():
     # Structure: { "ingredient_name": { "unit_type": total_quantity } }
     grocery_totals = {}
 
-    for day, meal in last_menu.meals.items():
+    for day, val in last_menu.meals.items():
+        # §5.13 storage is meal ids; resolve to the current Meal so the grocery list
+        # reflects edited ingredients. Legacy full-snapshot menus are handled too.
+        if isinstance(val, int):
+            m = db.session.get(Meal, val)
+            meal = m.to_dict() if m else {"id": val, "name": None, "ingredients": []}
+        elif isinstance(val, dict):
+            meal = val
+        else:
+            continue
+
         if not meal.get("ingredients"):
             continue
 
@@ -75,6 +85,20 @@ def build_grocery_list():
                 grocery_totals[normalized_item].get(unit, 0.0) + qty
             )
 
+    # audit B3a — user-added extras attach to this week's menu; treat as count-unit qty-1
+    # items that aggregate alongside meal ingredients.
+    for raw_item in (last_menu.extras or []):
+        if not raw_item:
+            continue
+        cleaned_str = raw_item.lower().strip()
+        normalized_item = INGREDIENT_MAP.get(cleaned_str, cleaned_str)
+        if not normalized_item:
+            continue
+        grocery_totals.setdefault(normalized_item, {})
+        grocery_totals[normalized_item]["count"] = (
+            grocery_totals[normalized_item].get("count", 0.0) + 1.0
+        )
+
     # 4. group by category
     grouped = {}
     for item, units in grocery_totals.items():
@@ -102,3 +126,25 @@ def build_grocery_list():
             })
 
     return grouped
+
+
+def get_extras():
+    """Return the latest weekly menu's user-added grocery extras (audit B3a)."""
+    last_menu = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).first()
+    if not last_menu:
+        return {"error": "Generate a menu first"}, 400
+    return {"extras": list(last_menu.extras or [])}
+
+
+def set_extras(items):
+    """Replace the latest weekly menu's extras list (audit B3a)."""
+    if not isinstance(items, list):
+        return {"error": "extras must be a list of strings"}, 400
+    cleaned = [sanitize_text(i) for i in items if isinstance(i, str)]
+    cleaned = [c for c in cleaned if c]
+    last_menu = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).first()
+    if not last_menu:
+        return {"error": "Generate a menu first"}, 400
+    last_menu.extras = cleaned
+    db.session.commit()
+    return {"extras": cleaned}

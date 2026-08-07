@@ -3,8 +3,13 @@
 
 export const MEALS_PER_PAGE = 20;
 
+// audit §8.3 / §5.22 — every request carries a custom header so the backend can verify it
+// is same-origin (CSRF defense for this no-cookie JSON API).
 export async function apiFetch(path, opts = {}) {
-  const res = await fetch(path, opts);
+  const headers = new Headers(opts.headers || {});
+  headers.set("X-Requested-With", "XMLHttpRequest");
+
+  const res = await fetch(path, { ...opts, headers });
 
   if (!res.ok) {
     let message;

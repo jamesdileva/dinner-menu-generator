@@ -4,10 +4,12 @@ Centralised here during the §4.1 modularization so `app.py` stays a thin entryp
 (see audit.md §4.1). Loaded with `app.config.from_object(Config)`.
 """
 
+import os
+
 
 class Config:
-    # --- Database ---
-    SQLALCHEMY_DATABASE_URI = "sqlite:///dinner.db"
+    # --- Database (audit §5.7: overridable via .env / env vars) ---
+    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", "sqlite:///dinner.db")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # --- CORS (audit §4.3) ---

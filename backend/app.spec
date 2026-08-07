@@ -5,7 +5,7 @@ a = Analysis(
     ['app.py'],
     pathex=[],
     binaries=[],
-    datas=[('../frontend/dist', 'frontend/dist'), ('migrations', 'migrations')],
+    datas=[('../frontend/dist', 'frontend/dist'), ('migrations', 'migrations'), ('ingredient_rules.json', '.'), ('meal_name_fixes.json', '.'), ('nutrition_rules.json', '.')],
     # §4.1 modularization: explicitly pull in the refactored packages so the
     # single-file build never tree-shrinks them out (routes register themselves
     # here via blueprint imports, which PyInstaller's tracer normally follows).
@@ -21,6 +21,7 @@ a = Analysis(
         'services',
         'services.menu_service',
         'services.grocery_service',
+        'services.nutrition_service',
     ],
     hookspath=[],
     hooksconfig={},

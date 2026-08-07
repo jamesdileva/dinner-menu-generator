@@ -15,12 +15,16 @@ non-destructive).
 
 import json
 import os
+import logging
 
 from flask import Blueprint, jsonify, request
 
 from models import Meal, WeeklyMenu, db
+from services.menu_service import expand_menu
+from utils import sanitize_text, sanitize_ingredients, normalize_ingredients
 
 data_bp = Blueprint("data_bp", __name__)
+logger = logging.getLogger(__name__)
 
 
 def _split_payload(data):
@@ -43,7 +47,10 @@ def _ingest(data):
     added = 0
 
     for m in meals:
-        name = m.get("name", "").strip() if isinstance(m, dict) else ""
+        if not isinstance(m, dict):
+            continue
+        # §8.6 sanitize name + ingredients before persisting
+        name = sanitize_text(m.get("name", ""), max_len=100)
         if not name:
             continue
 
@@ -53,9 +60,13 @@ def _ingest(data):
         if existing:
             continue
 
+        ingredients = normalize_ingredients(sanitize_ingredients(m.get("ingredients", [])))
+        category = sanitize_text(m.get("category", ""), max_len=50)  # §5.14
+
         db.session.add(Meal(
             name=name,
-            ingredients=m.get("ingredients", [])
+            ingredients=ingredients,
+            category=category or None
         ))
         added += 1
 
@@ -72,7 +83,7 @@ def export_data():
     weekly = WeeklyMenu.query.all()
     return jsonify({
         "meals": [m.to_dict() for m in meals],
-        "menus": [m.meals for m in weekly]
+        "menus": [expand_menu(m.meals) for m in weekly]  # §5.13 expand ids -> full meals
     })
 
 
@@ -102,8 +113,7 @@ def import_file():
                 os.path.join(os.path.dirname(__file__), "..", "backup.json")
             )
 
-        print("📂 IMPORT PATH:", file_path)
-        print("📂 EXISTS:", os.path.exists(file_path))
+        logger.info("Import path: %s (exists=%s)", file_path, os.path.exists(file_path))
 
         if not os.path.isfile(file_path):
             return jsonify({"error": f"File not found: {file_path}"}), 404
@@ -121,7 +131,7 @@ def import_file():
         return jsonify({"error": f"Invalid JSON in {source_desc}: {e}"}), 400
 
     added, menus = _ingest(data)
-    print(f"✅ Imported from {source_desc}: {added} meals + {menus} menus")
+    logger.info("Imported from %s: %d meals + %d menus", source_desc, added, menus)
     return jsonify({
         "status": "imported",
         "source": source_desc,
