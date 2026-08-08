@@ -10,6 +10,7 @@ Pure DB reads / no writes. Read via ``GET /insights`` (routes/menu.py).
 """
 
 import logging
+from typing import Any, Dict, List, Tuple, Union
 
 from models import WeeklyMenu
 from services.menu_service import expand_menu
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 _WINDOW = 4  # review the most recent N weekly menus (a "few weeks")
 
 
-def _tags_for(ingredient, rules):
+def _tags_for(ingredient: str, rules: Dict[str, Any]) -> List[str]:
     """Macro tags for an ingredient token (exact, then plural/substring tolerant)."""
     ing = rules.get("ingredients", {})
     token = (ingredient or "").lower().strip()
@@ -34,14 +35,21 @@ def _tags_for(ingredient, rules):
     return []
 
 
-def _targets(rules):
+def _targets(rules: Dict[str, Any]) -> Dict[str, int]:
     """Per-week macro targets: JSON `_targets_per_week` merged over safe defaults."""
-    defaults = {"protein": 3, "veg": 7, "dairy": 2, "carbs": 4, "fiber": 3, "healthy_fat": 2}
+    defaults: Dict[str, int] = {
+        "protein": 3,
+        "veg": 7,
+        "dairy": 2,
+        "carbs": 4,
+        "fiber": 3,
+        "healthy_fat": 2,
+    }
     defaults.update(rules.get("_targets_per_week", {}))
     return defaults
 
 
-def insights():
+def insights() -> Union[Dict[str, Any], Tuple[Dict[str, str], int]]:
     """Aggregate macro presence over the last `_WINDOW` weekly menus.
 
     Returns a dict ({weeks_reviewed, weekly_targets, totals, weeks, flags,
@@ -53,14 +61,14 @@ def insights():
 
     rules = load_nutrition_rules()
     targets_per_week = _targets(rules)
-    macros = list(targets_per_week.keys())
+    macros: List[str] = list(targets_per_week.keys())
 
-    totals = {m: 0 for m in macros}
-    counts = {}  # normalized ingredient -> occurrence count (for swap suggestions)
-    weeks = []
+    totals: Dict[str, int] = {m: 0 for m in macros}
+    counts: Dict[str, int] = {}  # normalized ingredient -> occurrence count (for swap suggestions)
+    weeks: List[Dict[str, Any]] = []
 
     for menu in menus:
-        week = {m: 0 for m in macros}
+        week: Dict[str, int] = {m: 0 for m in macros}
         expanded = expand_menu(menu.meals) or {}
         for day, meal in expanded.items():
             if not isinstance(meal, dict):
@@ -93,9 +101,13 @@ def insights():
     }
 
 
-def _suggest(totals, targets, counts):
+def _suggest(
+    totals: Dict[str, int],
+    targets: Dict[str, int],
+    counts: Dict[str, int],
+) -> List[str]:
     """Rule-based swap suggestions derived from the aggregate (audit B2)."""
-    suggestions = []
+    suggestions: List[str] = []
     flag_set = {f"low {m}" for m, t in targets.items() if totals.get(m, 0) < t}
 
     beef_like = counts.get("beef", 0) + counts.get("steak", 0) + counts.get("ground beef", 0)

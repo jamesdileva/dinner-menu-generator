@@ -15,21 +15,26 @@ party can no longer wipe/cleanse data via the running server.
 import feature (additive + deduping, non-destructive), so it remains an HTTP endpoint.
 """
 
+import logging
+from typing import Any, List
+
 import click
 from flask.cli import with_appcontext
 
 from models import db, Meal
 from utils import generate_ingredients, normalize_ingredients, clean_meal_name
 
+logger = logging.getLogger(__name__)
 
-def init_db_tables():
+
+def init_db_tables() -> None:
     db.create_all()
 
 
-def cleanse_meals():
+def cleanse_meals() -> None:
     """Backfill missing ingredients, normalise existing ones, and drop duplicate meals."""
-    meals = Meal.query.all()
-    seen = set()
+    meals: List[Meal] = Meal.query.all()
+    seen: set[str] = set()
 
     for meal in meals:
         combined = " ".join(meal.ingredients) if meal.ingredients else ""
@@ -41,7 +46,7 @@ def cleanse_meals():
             meal.ingredients = normalize_ingredients(combined)
 
         cleaned_name = clean_meal_name(meal.name)
-        normalized = cleaned_name.lower()
+        normalized = cleaned_name.lower() if cleaned_name else ""
 
         # remove duplicates
         if normalized in seen:
@@ -56,7 +61,7 @@ def cleanse_meals():
 
 @click.command("init-db")
 @with_appcontext
-def init_db():
+def init_db() -> None:
     """Create database tables (idempotent)."""
     init_db_tables()
     click.echo("DB initialized")
@@ -64,12 +69,12 @@ def init_db():
 
 @click.command("fix-data")
 @with_appcontext
-def fix_data():
+def fix_data() -> None:
     """Cleanse/normalise meals in place: backfill ingredients, normalise, dedupe."""
     cleanse_meals()
     click.echo("Data fully cleaned!")
 
 
-def register_cli(app):
+def register_cli(app: Any) -> None:
     app.cli.add_command(init_db)
     app.cli.add_command(fix_data)

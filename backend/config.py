@@ -5,6 +5,7 @@ Centralised here during the §4.1 modularization so `app.py` stays a thin entryp
 """
 
 import os
+from typing import List
 
 
 class Config:
@@ -15,8 +16,8 @@ class Config:
     # --- CORS (audit §4.3) ---
     # Dev only: the Vite dev server. Production is same-origin (Flask serves the frontend)
     # so no CORS is needed there.
-    CORS_ORIGINS = ["http://localhost:5173"]
+    CORS_ORIGINS: List[str] = ["http://localhost:5173"]
 
     # --- Upload limits (audit §4.6) ---
-    MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
-    MAX_IMAGE_DIMENSION = 4000  # px, either side
+    MAX_UPLOAD_BYTES: int = 5 * 1024 * 1024  # 5 MB
+    MAX_IMAGE_DIMENSION: int = 4000  # px, either side

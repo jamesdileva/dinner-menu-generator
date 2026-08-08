@@ -5,6 +5,7 @@ Ports the aggregation/quantity-parsing/categorisation that lived inline in the
 """
 
 import re
+from typing import Dict, List, Tuple, Union
 
 from models import Meal, WeeklyMenu, db
 from utils import (
@@ -17,10 +18,10 @@ from utils import (
 
 
 # common units to intercept while parsing ingredient strings
-UNIT_PATTERN = re.compile(r"\b(lb|lbs|can|cans|oz|ozs|tsp|tbsp|cup|cups|pack|g|kg|piece|pieces)\b")
+UNIT_PATTERN = re.compile(r"\b(lb|lbs|oz|ozs|tsp|tbsp|cup|cups|pack|g|kg|piece|pieces)\b")
 
 
-def build_grocery_list():
+def build_grocery_list() -> Union[Dict[str, List[Dict[str, str]]], Tuple[Dict[str, str], int]]:
     """Build a categorised grocery list from the most-recent weekly menu.
 
     Returns `({"Protein": [{"item": ..., "qty": ...}], ...})` or an error tuple
@@ -31,7 +32,7 @@ def build_grocery_list():
         return {"error": "Generate a menu first"}, 400
 
     # Structure: { "ingredient_name": { "unit_type": total_quantity } }
-    grocery_totals = {}
+    grocery_totals: Dict[str, Dict[str, float]] = {}
 
     for day, val in last_menu.meals.items():
         # §5.13 storage is meal ids; resolve to the current Meal so the grocery list
@@ -104,7 +105,7 @@ def build_grocery_list():
         )
 
     # 4. group by category
-    grouped = {}
+    grouped: Dict[str, List[Dict[str, str]]] = {}
     for item, units in grocery_totals.items():
         category = categorize_ingredient(item)
         grouped.setdefault(category, [])
@@ -129,7 +130,7 @@ def build_grocery_list():
     return grouped
 
 
-def get_extras():
+def get_extras() -> Union[Dict[str, List[str]], Tuple[Dict[str, str], int]]:
     """Return the latest weekly menu's user-added grocery extras (audit B3a)."""
     last_menu = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).first()
     if not last_menu:
@@ -137,7 +138,7 @@ def get_extras():
     return {"extras": list(last_menu.extras or [])}
 
 
-def set_extras(items):
+def set_extras(items: List[str]) -> Union[Dict[str, List[str]], Tuple[Dict[str, str], int]]:
     """Replace the latest weekly menu's extras list (audit B3a)."""
     if not isinstance(items, list):
         return {"error": "extras must be a list of strings"}, 400

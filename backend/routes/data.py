@@ -17,7 +17,10 @@ import json
 import os
 import logging
 
+from typing import Any, Dict, List, Tuple
+
 from flask import Blueprint, jsonify, request
+from flask.wrappers import Response
 
 from models import Meal, WeeklyMenu, db
 from services.menu_service import expand_menu
@@ -27,7 +30,7 @@ data_bp = Blueprint("data_bp", __name__)
 logger = logging.getLogger(__name__)
 
 
-def _split_payload(data):
+def _split_payload(data: Any) -> Tuple[List[Dict[str, Any]], List[Any]]:
     """Accept either a bare meals list or a {"meals":..., "menus":...} dict."""
     if isinstance(data, list):
         return data, []
@@ -36,7 +39,7 @@ def _split_payload(data):
     return [], []
 
 
-def _ingest(data):
+def _ingest(data: Any) -> Tuple[int, int]:
     """Persist an import payload. Shared by /import and /import-file (audit §5.4).
 
     Idempotent: meals that already exist (case-insensitive name match) are skipped;
@@ -72,7 +75,7 @@ def _ingest(data):
 
 
 @data_bp.route("/export")
-def export_data():
+def export_data() -> Response:
     meals = Meal.query.all()
     weekly = WeeklyMenu.query.all()
     return jsonify(
@@ -84,14 +87,14 @@ def export_data():
 
 
 @data_bp.route("/import", methods=["POST"])
-def import_data():
+def import_data() -> Response:
     data = request.json or {}
     added, _menus = _ingest(data)
     return {"status": "imported", "added": added}
 
 
 @data_bp.route("/import-file", methods=["GET", "POST"])
-def import_file():
+def import_file() -> Response:
     """Import from a file: `?path=<json file>`, a multipart `file` upload, or the
     legacy `backend/backup.json`. (audit §5.4)"""
     # mode 1: multipart file upload

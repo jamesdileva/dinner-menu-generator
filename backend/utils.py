@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pytesseract
 
@@ -18,10 +19,10 @@ if tesseract_path:
     pytesseract.pytesseract.tesseract_cmd = tesseract_path
 
 # --- Ingredient normalization tables ---------------------------------------
-IGNORE_WORDS = ["mix", "premade", "or", "white", "sub", "sandwich"]
+IGNORE_WORDS: List[str] = ["mix", "premade", "or", "white", "sub", "sandwich"]
 IGNORE_WORDS.append("sauce")
 IGNORE_WORDS.extend(["and"])
-KEEP_TOGETHER = [
+KEEP_TOGETHER: List[str] = [
     "pancake mix",
     "tomato sauce",
     "soy sauce",
@@ -37,7 +38,7 @@ KEEP_TOGETHER = [
     "white rice",
 ]
 
-INGREDIENT_MAP = {
+INGREDIENT_MAP: Dict[str, str] = {
     "chicken breast": "chicken",
     "chicken thigh": "chicken",
     "ground beef": "beef",
@@ -77,7 +78,7 @@ KEEP_TOGETHER.extend(
     ]
 )
 
-fast_food_spots = [
+fast_food_spots: List[Dict[str, str]] = [
     {"name": "McDonald's", "type": "Fast Food"},
     {"name": "Chipotle", "type": "Mexican"},
     {"name": "Pizza Hut", "type": "Pizza"},
@@ -86,19 +87,19 @@ fast_food_spots = [
 ]
 
 
-def merge_ingredient(name):
+def merge_ingredient(name: str) -> str:
     return INGREDIENT_MAP.get(name, name)
 
 
-def normalize_name(name):
+def normalize_name(name: str) -> str:
     return name.strip().lower()
 
 
 # audit §5.19 — configurable meal-name typo fixes (extensible via meal_name_fixes.json).
-_NAME_FIXES = None
+_NAME_FIXES: Optional[Dict[str, str]] = None
 
 
-def _load_name_fixes():
+def _load_name_fixes() -> Dict[str, str]:
     """Load the typo-correction map once and cache it (module global)."""
     global _NAME_FIXES
     if _NAME_FIXES is None:
@@ -111,7 +112,7 @@ def _load_name_fixes():
     return _NAME_FIXES
 
 
-def clean_meal_name(name):
+def clean_meal_name(name: Optional[str]) -> Optional[str]:
     if not name:
         return name
 
@@ -127,17 +128,17 @@ def clean_meal_name(name):
     return _load_name_fixes().get(name, name)
 
 
-def _is_skip_token(token):
+def _is_skip_token(token: str) -> bool:
     """True if a single cleaned token should be dropped (blank, 'ingredient…' prefix, junk)."""
     return not token or token.startswith("ingredient") or len(token) < 2 or token in IGNORE_WORDS
 
 
-def _singularize(token):
+def _singularize(token: str) -> str:
     """Naive trailing-s stripper used by the original tokeniser (audit §5.8)."""
     return token[:-1] if token.endswith("s") and len(token) > 3 else token
 
 
-def _match_keep_together(normalized_item):
+def _match_keep_together(normalized_item: str) -> Optional[str]:
     """Return the first KEEP_TOGETHER phrase found in `normalized_item`, else None.
 
     Phrases are matched as substrings so multi-word phrases like "ground beef" are kept
@@ -150,14 +151,14 @@ def _match_keep_together(normalized_item):
     return None
 
 
-def normalize_ingredients(ingredients):
+def normalize_ingredients(ingredients: Union[List[str], str]) -> List[str]:
     """Normalise a list of ingredient strings into a flattened, singularised list.
 
     Refactored in clear stages (audit §5.8) — behaviour is unchanged: for each item,
     guard the angel-hair special-case, match a KEEP_TOGETHER phrase, otherwise split on
     commas then spaces and clean each token (drop blanks/junk, singularise, merge).
     """
-    result = []
+    result: List[str] = []
     items = ingredients if isinstance(ingredients, list) else [ingredients]
 
     for item in items:
@@ -191,10 +192,10 @@ def normalize_ingredients(ingredients):
     return result
 
 
-_INGREDIENT_RULES = None
+_INGREDIENT_RULES: Optional[Dict[str, Any]] = None
 
 
-def _load_ingredient_rules():
+def _load_ingredient_rules() -> Dict[str, Any]:
     """Load the keyword -> ingredient map from `ingredient_rules.json` (audit §5.9).
 
     Falls back to an empty ruleset if the file is missing (e.g. inside a PyInstaller
@@ -213,10 +214,10 @@ def _load_ingredient_rules():
 
 # audit B2 — load the curated nutrition macro tags (mirror _load_ingredient_rules so the
 # data file resolves correctly inside a PyInstaller bundle too).
-_NUTRITION_RULES = None
+_NUTRITION_RULES: Optional[Dict[str, Any]] = None
 
 
-def load_nutrition_rules():
+def load_nutrition_rules() -> Dict[str, Any]:
     """Load `nutrition_rules.json` (ingredient -> {tags:[...]}).
 
     Falls back to `{}` if the file is missing/corrupt so this feature never crashes the app.
@@ -232,7 +233,7 @@ def load_nutrition_rules():
     return _NUTRITION_RULES
 
 
-def generate_ingredients(meal_name):
+def generate_ingredients(meal_name: str) -> List[str]:
     """Guess ingredients for a meal from its name (audit §5.9: now config-driven).
 
     Walks an ordered `pasta_base` list (first match wins, exclusive), then appends from
@@ -241,7 +242,7 @@ def generate_ingredients(meal_name):
     """
     name = meal_name.lower()
     rules = _load_ingredient_rules()
-    ingredients = []
+    ingredients: List[str] = []
 
     # mutually exclusive base (e.g. pasta type)
     for keyword, adds in rules.get("pasta_base", []):
@@ -262,7 +263,7 @@ def generate_ingredients(meal_name):
     return normalize_ingredients(ingredients)
 
 
-def is_valid_meal(text):
+def is_valid_meal(text: str) -> bool:
     text = text.strip()
 
     if not text:
@@ -306,7 +307,7 @@ def is_valid_meal(text):
     return True
 
 
-def parse_quantity(num_str):
+def parse_quantity(num_str: str) -> float:
     """Parse quantity strings like "2", "1.5", "1/2", "1 1/2" into floats.
 
     Moved here from `app.py` (audit §3.8) so it is reusable by the grocery service.
@@ -343,7 +344,7 @@ def parse_quantity(num_str):
 # ('tomatoes', 'ground beef', 'black beans'). The old code used exact-match sets, which
 # sent most items to "Other". We now substring-match on singular keywords so plurals and
 # phrases bucket correctly. Order matters: the first matching bucket wins.
-_PROTEIN_WORDS = (
+_PROTEIN_WORDS: Tuple[str, ...] = (
     "chicken",
     "turkey",
     "beef",
@@ -369,7 +370,7 @@ _PROTEIN_WORDS = (
     "lamb",
     "duck",
 )
-_PRODUCE_WORDS = (
+_PRODUCE_WORDS: Tuple[str, ...] = (
     "lettuce",
     "cabbage",
     "spinach",
@@ -400,7 +401,7 @@ _PRODUCE_WORDS = (
     "scallion",
     "green onion",
 )
-_DAIRY_WORDS = (
+_DAIRY_WORDS: Tuple[str, ...] = (
     "milk",
     "cheese",
     "cheddar",
@@ -413,7 +414,7 @@ _DAIRY_WORDS = (
     "yogurt",
     "sour cream",
 )
-_GRAIN_WORDS = (
+_GRAIN_WORDS: Tuple[str, ...] = (
     "rice",
     "pasta",
     "noodle",
@@ -440,7 +441,7 @@ _GRAIN_WORDS = (
 # audit B3a — snack-y grocery items the user may add by hand (or that don't fit the
 # aisles above). Checked BEFORE Grains so "rice krispies"/"cereal bar" bucket as Snacks,
 # while plain "cereal"/"rice" still fall to Grains.
-_SNACKS_WORDS = (
+_SNACKS_WORDS: Tuple[str, ...] = (
     "oreo",
     "cookie",
     "crisp",
@@ -451,12 +452,12 @@ _SNACKS_WORDS = (
 )
 
 
-def _match_any(words, item):
+def _match_any(words: Tuple[str, ...], item: str) -> bool:
     """True if any keyword is a substring of `item` (handles plurals/phrases)."""
     return any(word in item for word in words)
 
 
-def categorize_ingredient(item):
+def categorize_ingredient(item: str) -> str:
     """Bucket a (lowercase) grocery ingredient into a shopping aisle (audit §5.10)."""
     if not item:
         return "Other"
@@ -478,7 +479,7 @@ def categorize_ingredient(item):
 # list has to pluralize again for display. The old code only ever appended "s" to units
 # (lb->lbs, fine) but left count items singular ("Tomato (2)"). These fix the count
 # items: true irregulars, mass/collective nouns (never pluralized), and regular suffixes.
-MASS_NOUNS = {
+MASS_NOUNS: set[str] = {
     "cheese",
     "rice",
     "bread",
@@ -500,13 +501,13 @@ MASS_NOUNS = {
     "pepper",
 }
 
-IRREGULAR_PLURALS = {
+IRREGULAR_PLURALS: Dict[str, str] = {
     "tomato": "tomatoes",
     "potato": "potatoes",
 }
 
 
-def pluralize_word(word):
+def pluralize_word(word: str) -> str:
     """Return the plural form of a singular grocery item word (audit §5.11)."""
     if not word:
         return word
@@ -540,7 +541,7 @@ def pluralize_word(word):
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 
 
-def sanitize_text(value, max_len=200):
+def sanitize_text(value: Any, max_len: int = 200) -> str:
     """Normalise a user-supplied string before it is stored (audit §8.6).
 
     - strips NUL and other ASCII control characters (newlines, tabs, etc.)
@@ -562,15 +563,18 @@ def sanitize_text(value, max_len=200):
     return s
 
 
-def sanitize_ingredients(ingredients, max_count=100, max_len=200):
+def sanitize_ingredients(ingredients: Any, max_count: int = 100, max_len: int = 200) -> List[str]:
     """Sanitize a list of ingredient strings; drops empty entries and bounds the count."""
     if ingredients is None:
         return []
     if isinstance(ingredients, str):
         items = [ingredients]
     else:
-        items = ingredients
-    out = []
+        try:
+            items = list(ingredients)
+        except TypeError:
+            items = []
+    out: List[str] = []
     for item in items:
         cleaned = sanitize_text(item, max_len=max_len)
         if cleaned:

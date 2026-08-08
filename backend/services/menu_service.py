@@ -6,18 +6,24 @@ All DB writes happen inside Flask request context (routes call these helpers).
 
 import random
 from datetime import date
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from models import Meal, WeeklyMenu, UsedMeal, db
 from utils import fast_food_spots
 
+_DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
-def pick_takeout():
+
+def pick_takeout() -> Dict[str, str]:
     """Quick Pick — pick a random takeout spot."""
     return random.choice(fast_food_spots)
 
 
-def decide():
-    """Quick Pick — random home OR takeout choice."""
+def decide() -> Union[Dict[str, Any], Tuple[Dict[str, str], int]]:
+    """Quick Pick — random home OR takeout choice.
+
+    Returns a meal dict ({"mode": "home", "meal": {...}}) or an error tuple.
+    """
     choice = random.choice(["home", "takeout"])
 
     if choice == "home":
@@ -31,7 +37,7 @@ def decide():
     return {"mode": "takeout", "meal": random.choice(fast_food_spots)}
 
 
-def pick_today():
+def pick_today() -> Union[Dict[str, Any], Tuple[Dict[str, str], int]]:
     """`GET /menu/today` — random home meal, no repeats on the same calendar day.
 
     Persists its choice in `used_meal` so the no-repeat guarantee survives restarts
@@ -63,13 +69,13 @@ def pick_today():
     return meal.to_dict()
 
 
-def expand_menu(meals_map):
+def expand_menu(meals_map: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Resolve a WeeklyMenu's meals map into full meal dicts for display/export.
 
     Storage is now meal ids only (§5.13), but the API still returns expanded dicts so the
     frontend is unchanged. Also transparently handles legacy full-snapshot menus.
     """
-    out = {}
+    out: Dict[str, Any] = {}
     if not meals_map:
         return out
     for day, val in meals_map.items():
@@ -83,7 +89,7 @@ def expand_menu(meals_map):
     return out
 
 
-def list_menus():
+def list_menus() -> List[Dict[str, Any]]:
     """`GET /menus` — all saved weekly menus for the history view (audit §5.15).
 
     Newest first. Each menu's meals are resolved from their stored ids (§5.13) so the
@@ -93,7 +99,7 @@ def list_menus():
     return [{"id": m.id, "meals": expand_menu(m.meals)} for m in menus]
 
 
-def _resolve_meal(val):
+def _resolve_meal(val: Any) -> Optional[Meal]:
     """Turn a WeeklyMenu day value (meal id or full dict) into a Meal instance or None."""
     if isinstance(val, dict):
         return db.session.get(Meal, val.get("id"))
@@ -102,7 +108,7 @@ def _resolve_meal(val):
     return None
 
 
-def generate_week():
+def generate_week() -> Union[Dict[str, Any], Tuple[Dict[str, str], int]]:
     """`GET /menu/week` — 7 distinct random meals (audit §5.13, §9.6).
 
     §9.6: pick 7 random meals at the DB level (`ORDER BY RANDOM() LIMIT 7`) instead of loading
@@ -115,9 +121,9 @@ def generate_week():
         return {"error": "Add at least 7 meals"}, 400
 
     selected = db.session.query(Meal).order_by(db.func.random()).limit(7).all()
-    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-
-    result = {days[i]: selected[i].id for i in range(7)}  # §5.13 store id, not snapshot
+    result: Dict[str, int] = {
+        day: selected[i].id for i, day in enumerate(_DAYS)
+    }  # §5.13 store id, not snapshot
 
     menu = WeeklyMenu(meals=result)
     db.session.add(menu)
@@ -126,7 +132,7 @@ def generate_week():
     return result
 
 
-def reroll_day(day):
+def reroll_day(day: str) -> Union[Dict[str, Any], Tuple[Dict[str, str], int]]:
     """`POST /menu/reroll/<day>` — swap one day in the most-recent weekly menu."""
     last_menu = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).first()
     if not last_menu:
@@ -154,7 +160,9 @@ def reroll_day(day):
     return {"day": day, "meal": new_meal.to_dict()}
 
 
-def set_menu_day(day, meal_dict):
+def set_menu_day(
+    day: str, meal_dict: Union[Dict[str, Any], int]
+) -> Union[Dict[str, Any], Tuple[Dict[str, str], int]]:
     """`PUT /menu/<day>` — set the meal for a day in the last weekly menu.
 
     Used to (re)store a day's meal, e.g. to undo a reroll (audit §5.12).

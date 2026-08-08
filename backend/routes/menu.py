@@ -11,8 +11,10 @@ Blueprint: `menu_bp`
 """
 
 import logging
+from typing import Any, Dict, Tuple, Union
 
 from flask import Blueprint, jsonify, request
+from flask.wrappers import Response
 
 from services.menu_service import (
     pick_today,
@@ -30,7 +32,7 @@ menu_bp = Blueprint("menu_bp", __name__)
 logger = logging.getLogger(__name__)
 
 
-def _respond(result):
+def _respond(result: Union[Dict[str, Any], Tuple[Dict[str, Any], int]]) -> Response:
     """A service helper returns either a dict (success) or an (error, status) tuple."""
     if isinstance(result, tuple):
         error, status = result
@@ -39,22 +41,22 @@ def _respond(result):
 
 
 @menu_bp.route("/menu/today", methods=["GET"])
-def meal_today():
+def meal_today() -> Response:
     return _respond(pick_today())
 
 
 @menu_bp.route("/menu/takeout", methods=["GET"])
-def takeout():
+def takeout() -> Response:
     return jsonify(pick_takeout())
 
 
 @menu_bp.route("/menu/decide", methods=["GET"])
-def decide_route():
+def decide_route() -> Response:
     return _respond(decide())
 
 
 @menu_bp.route("/menu/week", methods=["GET"])
-def week():
+def week() -> Response:
     try:
         result = generate_week()
         # §5.13 menus store meal ids; expand to full dicts for the frontend display
@@ -67,12 +69,12 @@ def week():
 
 
 @menu_bp.route("/menu/reroll/<day>", methods=["POST"])
-def reroll(day):
+def reroll(day: str) -> Response:
     return _respond(reroll_day(day))
 
 
 @menu_bp.route("/menu/<day>", methods=["PUT"])
-def set_day(day):
+def set_day(day: str) -> Response:
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict) or "name" not in data:
         return jsonify({"error": "Invalid meal payload (need {name, ingredients})"}), 400
@@ -80,12 +82,12 @@ def set_day(day):
 
 
 @menu_bp.route("/menus", methods=["GET"])
-def menus():
+def menus() -> Response:
     """Menu history: list all saved weekly menus, newest first (audit §5.15)."""
     return _respond(list_menus())
 
 
 @menu_bp.route("/insights", methods=["GET"])
-def insights_route():
+def insights_route() -> Response:
     """Audit B2: last-few-weeks macro overview + deficiency flags + swap suggestions."""
     return _respond(insights())

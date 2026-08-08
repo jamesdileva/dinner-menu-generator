@@ -10,6 +10,7 @@ Blueprint: `grocery_bp`
 import csv
 import io
 import logging
+
 from flask import Blueprint, jsonify, request, Response
 
 from services.grocery_service import build_grocery_list, get_extras, set_extras
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 @grocery_bp.route("/grocery", methods=["GET"])
-def grocery():
+def grocery() -> Response:
     try:
         result = build_grocery_list()
         if isinstance(result, tuple):
@@ -32,7 +33,7 @@ def grocery():
 
 
 @grocery_bp.route("/grocery/extras", methods=["GET"])
-def grocery_extras():
+def grocery_extras() -> Response:
     try:
         result = get_extras()
         if isinstance(result, tuple):
@@ -46,7 +47,7 @@ def grocery_extras():
 
 # audit B3a — replace the latest menu's extras (e.g. after removing an item)
 @grocery_bp.route("/grocery/extras", methods=["PUT"])
-def replace_extras():
+def replace_extras() -> Response:
     data = request.get_json(silent=True) or {}
     try:
         items = data.get("items", []) if isinstance(data, dict) else []
@@ -61,7 +62,7 @@ def replace_extras():
 
 
 @grocery_bp.route("/grocery/export", methods=["GET"])
-def export_grocery():
+def export_grocery() -> Response:
     fmt = request.args.get("format", "csv").lower()
     try:
         result = build_grocery_list()

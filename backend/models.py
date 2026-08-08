@@ -5,6 +5,8 @@ application object — `app.py` calls `db.init_app(app)` at startup. This breaks
 circular import that would otherwise form (routes → models → app → routes).
 """
 
+from typing import Any, Dict
+
 from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
@@ -20,13 +22,13 @@ class Meal(db.Model):
     # list (order by name) and the §5.14 category filter + `/meals/categories` distinct
     # query. (A functional `lower(name)` CI index is skipped: SQLite/Alembic can't reflect
     # expression indexes for autogenerate, and the dedupe lookups below run on a small local
-    # table where the overhead isn't worth a hand-maintained raw-SQL index.)
+    # table where the overhead isn't worth a hand-managed raw-SQL index.)
     __table_args__ = (
         db.Index("ix_meal_name", "name"),
         db.Index("ix_meal_category", "category"),
     )
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,

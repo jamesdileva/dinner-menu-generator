@@ -16,6 +16,7 @@ import numpy as np
 from PIL import Image
 import pytesseract
 from flask import Blueprint, jsonify, request
+from flask.wrappers import Response
 
 from models import Meal, db
 from utils import (
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 @meals_bp.route("/meals", methods=["GET"])
-def get_meals():
+def get_meals() -> Response:
     page = request.args.get("page", 1, type=int)
     limit = request.args.get("limit", 50, type=int)
     limit = min(max(limit, 1), 100)
@@ -67,7 +68,7 @@ def get_meals():
 
 
 @meals_bp.route("/meals/categories", methods=["GET"])
-def get_meal_categories():
+def get_meal_categories() -> Response:
     """Distinct, non-empty meal categories (for the frontend filter dropdown). §5.14"""
     rows = db.session.query(Meal.category).filter(Meal.category.isnot(None)).distinct().all()
     categories = sorted([r[0] for r in rows if r[0]])
@@ -75,7 +76,7 @@ def get_meal_categories():
 
 
 @meals_bp.route("/meal", methods=["POST"])
-def add_meal():
+def add_meal() -> Response:
     data = request.json or {}
 
     raw_name = data.get("name", "")
@@ -105,7 +106,7 @@ def add_meal():
 
 
 @meals_bp.route("/meal/<int:id>", methods=["PUT"])
-def update_meal(id):
+def update_meal(id: int) -> Response:
     meal = db.session.get(Meal, id)
     if not meal:
         return jsonify({"error": "Meal not found"}), 404
@@ -124,7 +125,7 @@ def update_meal(id):
 
 
 @meals_bp.route("/meal/<int:id>", methods=["DELETE"])
-def delete_meal(id):
+def delete_meal(id: int) -> Response:
     meal = db.session.get(Meal, id)
     if not meal:
         return jsonify({"error": "Meal not found"}), 404
@@ -137,7 +138,7 @@ def delete_meal(id):
 
 @meals_bp.route("/upload-menu", methods=["POST"])
 @limiter.limit("5/minute")  # audit §8.4 — protect the OCR/Tesseract endpoint
-def upload_menu():
+def upload_menu() -> Response:
     try:
         if "image" not in request.files:
             return jsonify({"error": "No image file provided"}), 400
