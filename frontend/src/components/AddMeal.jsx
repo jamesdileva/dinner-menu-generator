@@ -11,6 +11,8 @@ export default function AddMeal({ name, ingredients, category, categories, onNam
         placeholder="Meal name"
         value={name}
         onChange={onNameChange}
+        onKeyDown={(e) => e.key === "Enter" && onAdd()}
+        autoFocus
       />
       <select className="input-field" value={category || ""} onChange={onCategoryChange}>
         <option value="">(no category)</option>
@@ -25,6 +27,7 @@ export default function AddMeal({ name, ingredients, category, categories, onNam
         placeholder="Ingredients (comma separated)"
         value={ingredients}
         onChange={onIngredientsChange}
+        onKeyDown={(e) => e.key === "Enter" && onAdd()}
       />
 
       <div className="row-wrap" style={{ gap: "10px" }}>

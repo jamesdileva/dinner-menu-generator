@@ -256,6 +256,21 @@ export default function App() {
       loadMeals(1);
     });
 
+  // §6.14: Escape cancels any active edit, or dismisses the undo toast.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        if (editingMeal) {
+          cancelEdit();
+        } else if (undo) {
+          dismissUndo();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editingMeal, undo]);
+
   useEffect(() => {
     loadMeals();
     loadCategories(); // §5.14
@@ -430,40 +445,42 @@ export default function App() {
             <li key={meal.id} className="list-item">
               {editingMeal?.id === meal.id ? (
                 <div style={{ display: "block", width: "100%" }}>
-                  <input
-                    className="input-field"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    placeholder="Meal name"
-                  />
-                  <input
-                    className="input-field"
-                    value={editIngredients}
-                    onChange={(e) => setEditIngredients(e.target.value)}
-                    placeholder="Ingredients (comma separated)"
-                  />
-                  <select
-                    className="input-field"
-                    style={{ marginBottom: "8px" }}
-                    value={editCategory}
-                    onChange={(e) => setEditCategory(e.target.value)}
-                  >
-                    <option value="">(no category)</option>
-                    {categories.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="row-gap" style={{ gap: "8px" }}>
-                    <button className="btn-sm" onClick={() => saveEdit(meal)}>
-                      Save
-                    </button>
-                    <button className="btn-sm" onClick={cancelEdit}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
+                   <input
+                     className="input-field"
+                     value={editName}
+                     onChange={(e) => setEditName(e.target.value)}
+                     onKeyDown={(e) => e.key === "Enter" && saveEdit(meal)}
+                     placeholder="Meal name"
+                   />
+                   <input
+                     className="input-field"
+                     value={editIngredients}
+                     onChange={(e) => setEditIngredients(e.target.value)}
+                     onKeyDown={(e) => e.key === "Enter" && saveEdit(meal)}
+                     placeholder="Ingredients (comma separated)"
+                   />
+                   <select
+                     className="input-field"
+                     style={{ marginBottom: "8px" }}
+                     value={editCategory}
+                     onChange={(e) => setEditCategory(e.target.value)}
+                   >
+                     <option value="">(no category)</option>
+                     {categories.map((c) => (
+                       <option key={c} value={c}>
+                         {c}
+                       </option>
+                     ))}
+                   </select>
+                   <div className="row-gap" style={{ gap: "8px" }}>
+                     <button className="btn-sm" onClick={() => saveEdit(meal)}>
+                       Save
+                     </button>
+                     <button className="btn-sm" onClick={cancelEdit}>
+                       Cancel
+                     </button>
+                   </div>
+                 </div>
               ) : (
                 <>
                   <span>
