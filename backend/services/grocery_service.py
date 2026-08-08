@@ -5,7 +5,7 @@ Ports the aggregation/quantity-parsing/categorisation that lived inline in the
 """
 
 import re
-from typing import Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
 from models import Meal, WeeklyMenu, db
 from utils import (
@@ -21,15 +21,18 @@ from utils import (
 UNIT_PATTERN = re.compile(r"\b(lb|lbs|oz|ozs|tsp|tbsp|cup|cups|pack|g|kg|piece|pieces)\b")
 
 
-def build_grocery_list() -> Union[Dict[str, List[Dict[str, str]]], Tuple[Dict[str, str], int]]:
+def build_grocery_list() -> Union[Dict[str, List[Dict[str, Any]]], Tuple[Dict[str, str], int]]:
     """Build a categorised grocery list from the most-recent weekly menu.
 
-    Returns `({"Protein": [{"item": ..., "qty": ...}], ...})` or an error tuple
-    `(error_dict, status_code)`.
+    Returns `({"Protein": [{"item": ..., "qty": ..., "purchased": bool}], ...})` or an
+    error tuple `(error_dict, status_code)`.
     """
     last_menu = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).first()
     if not last_menu:
         return {"error": "Generate a menu first"}, 400
+
+    # §13.3 — load the purchased set once; items are keyed by normalized name.
+    purchased: set = set(last_menu.purchased or [])
 
     # Structure: { "ingredient_name": { "unit_type": total_quantity } }
     grocery_totals: Dict[str, Dict[str, float]] = {}
@@ -125,7 +128,11 @@ def build_grocery_list() -> Union[Dict[str, List[Dict[str, str]]], Tuple[Dict[st
                 if display_qty > 1:
                     qty_str += "s"  # pluralize the unit (lb -> lbs, can -> cans, ...)
 
-            grouped[category].append({"item": item_display, "qty": qty_str})
+            # §13.3 — attach purchased flag so the frontend can render checkboxes
+            # keyed by the normalized item name (same as the `item` dict key here).
+            grouped[category].append(
+                {"item": item_display, "qty": qty_str, "purchased": item in purchased}
+            )
 
     return grouped
 
@@ -150,3 +157,52 @@ def set_extras(items: List[str]) -> Union[Dict[str, List[str]], Tuple[Dict[str, 
     last_menu.extras = cleaned
     db.session.commit()
     return {"extras": cleaned}
+
+
+def get_purchased() -> Union[Dict[str, List[str]], Tuple[Dict[str, str], int]]:
+    """Return the latest weekly menu's checked-off grocery items (§13.3)."""
+    last_menu = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).first()
+    if not last_menu:
+        return {"error": "Generate a menu first"}, 400
+    return {"purchased": list(last_menu.purchased or [])}
+
+
+def set_purchased(items: List[str]) -> Union[Dict[str, List[str]], Tuple[Dict[str, str], int]]:
+    """Replace the latest weekly menu's purchased-items list (§13.3)."""
+    if not isinstance(items, list):
+        return {"error": "purchased must be a list of strings"}, 400
+    cleaned = [sanitize_text(i).lower() for i in items if isinstance(i, str)]
+    cleaned = [c for c in cleaned if c]
+    last_menu = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).first()
+    if not last_menu:
+        return {"error": "Generate a menu first"}, 400
+    last_menu.purchased = cleaned
+    db.session.commit()
+    return {"purchased": cleaned}
+
+
+def toggle_purchased(item: str) -> Union[Dict[str, bool], Tuple[Dict[str, str], int]]:
+    """Toggle a single item's checked-off state (§13.3).
+
+    `item` is the normalized (lowercase) item name — the same key the frontend uses
+    when it reads the `purchased` flag from `/grocery`.
+    """
+    last_menu = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).first()
+    if not last_menu:
+        return {"error": "Generate a menu first"}, 400
+
+    current: list = list(last_menu.purchased or [])
+    norm = sanitize_text(item).lower()
+    if not norm:
+        return {"error": "Item name is required"}, 400
+
+    if norm in current:
+        current.remove(norm)
+        state = False  # was removed → now unchecked
+    else:
+        current.append(norm)
+        state = True  # was added → now checked
+
+    last_menu.purchased = current
+    db.session.commit()
+    return {"item": norm, "purchased": state}

@@ -146,6 +146,35 @@ def test_grocery_extras_and_snacks(client):
     txt = client.get("/grocery/export?format=text").get_data(as_text=True)
     assert "Oreos" in txt and "Cereal" in txt and "Snacks" in txt
 
+    csv_data = client.get("/grocery/export?format=csv").get_data(as_text=True)
+    assert "Purchased" in csv_data
+
+
+def test_grocery_checkoff_toggle(client):
+    # §13.3 — toggle a single item's checked-off state, persisted per menu.
+    for i in range(7):
+        _add(client, f"Meal {i}", ["rice", "chicken"])
+    assert client.get("/menu/week").status_code == 200
+
+    g = client.get("/grocery").get_json()
+    assert "Grains" in g and "Rice" in [i["item"] for i in g["Grains"]]
+    item = g["Grains"][0]
+    assert item["purchased"] is False
+
+    # toggle on
+    r = client.post("/grocery/purchased/Rice", headers=HDR)
+    assert r.status_code == 200
+    assert r.get_json() == {"item": "rice", "purchased": True}
+
+    # grocery list reflects the change
+    g2 = client.get("/grocery").get_json()
+    rice_item = [i for i in g2["Grains"] if i["item"] == "Rice"]
+    assert rice_item and rice_item[0]["purchased"] is True
+
+    # toggle off
+    r2 = client.post("/grocery/purchased/Rice", headers=HDR)
+    assert r2.get_json() == {"item": "rice", "purchased": False}
+
 
 def test_insights_requires_menu(client):
     # B2 — no menus yet -> 400, not a 500.

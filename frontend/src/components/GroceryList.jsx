@@ -3,6 +3,7 @@
 // Includes audit B3a: user-added "extras" (e.g. Oreos, milk) attached to the
 // current week's menu and folded into the categorized list + exports.
 // §13a.4: "Email list" mailto link (pre-existing) + CSV / text downloads.
+// §13.3: checkboxes + strikethrough for checked-off items; persisted per-menu.
 
 import { useState, useEffect } from "react";
 import { apiFetch } from "../api.js";
@@ -53,6 +54,28 @@ export default function GroceryList({ grocery, onGenerate }) {
       .catch((e) => setErr(e.message));
   };
 
+  // §13.3 — toggle a single item's checked-off state
+  const toggleItem = (itemName) => {
+    apiFetch(`/grocery/purchased/${encodeURIComponent(itemName)}`, { method: "POST" })
+      .then(() => {
+        // optimistic: refresh the grocery list to pick up the new purchased state
+        onGenerate();
+      })
+      .catch((e) => setErr(e.message));
+  };
+
+  // §13.3 — build the text/CSV body with checked/unchecked annotation
+  const textBody = () => {
+    if (!grocery) return "My shopping list is empty.";
+    return Object.entries(grocery)
+      .map(([category, items]) =>
+        `${category.toUpperCase()}\n${items
+          .map((i) => `  ${i.purchased ? "[x]" : "[ ]"} ${i.item} (${i.qty})`)
+          .join("\n")}`
+      )
+      .join("\n\n");
+  };
+
   return (
     <div className="card">
       <h2>Grocery List</h2>
@@ -73,15 +96,7 @@ export default function GroceryList({ grocery, onGenerate }) {
             <span style={{ opacity: 0.5 }}>|</span>
             <a
               className="link-btn"
-              href={`mailto:?subject=My%20Shopping%20List&body=${encodeURIComponent(
-                Object.entries(grocery)
-                  .map(([category, items]) =>
-                    `${category.toUpperCase()}\n${items
-                      .map((i) => `  - ${i.item} (${i.qty})`)
-                      .join("\n")}`
-                  )
-                  .join("\n\n") || "My shopping list is empty."
-              )}`}
+              href={`mailto:?subject=My%20Shopping%20List&body=${encodeURIComponent(textBody())}`}
             >
               Email list
             </a>
@@ -101,7 +116,13 @@ export default function GroceryList({ grocery, onGenerate }) {
                 Add
               </button>
             </div>
-            {err && <span style={{ color: "var(--text-error)", fontSize: "12px", marginTop: "4px", display: "block" }}>{err}</span>}
+            {err && (
+              <span
+                style={{ color: "var(--text-error)", fontSize: "12px", marginTop: "4px", display: "block" }}
+              >
+                {err}
+              </span>
+            )}
 
             {Array.isArray(extras) && extras.length > 0 ? (
               <ul style={{ listStyle: "none", padding: 0, marginTop: "8px" }}>
@@ -121,15 +142,31 @@ export default function GroceryList({ grocery, onGenerate }) {
             )}
           </div>
 
+          {/* §13.3 — categorized items with checkboxes */}
           <div style={{ marginTop: "15px" }}>
             {Object.entries(grocery).map(([category, items]) => (
               <div key={category} style={{ marginBottom: "15px" }}>
                 <h3 style={{ color: "var(--text-muted)" }}>{category}</h3>
-                <ul style={{ paddingLeft: "15px" }}>
+                <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
                   {items.map((i) => (
-                    <li key={i.item}>
-                      {i.item}{" "}
-                      <span style={{ opacity: 0.6 }}>({i.qty})</span>
+                    <li
+                      key={i.item}
+                      className="list-item"
+                      style={{
+                        textDecoration: i.purchased ? "line-through" : "none",
+                        opacity: i.purchased ? 0.6 : 1,
+                      }}
+                    >
+                      <span className="row-gap" style={{ gap: "8px" }}>
+                        <input
+                          type="checkbox"
+                          checked={!!i.purchased}
+                          onChange={() => toggleItem(i.item)}
+                          style={{ cursor: "pointer" }}
+                        />
+                        <span>{i.item}</span>
+                        <span style={{ opacity: 0.6 }}>({i.qty})</span>
+                      </span>
                     </li>
                   ))}
                 </ul>

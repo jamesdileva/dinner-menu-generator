@@ -1,10 +1,13 @@
 """Grocery-list route (audit §4.1).
 
 Blueprint: `grocery_bp`
-  GET  /grocery          categorised grocery list from the last weekly menu
-  GET  /grocery/export   downloadable grocery list (audit §5.16): CSV (default) or text
-  GET  /grocery/extras   user-added grocery extras on the last menu (audit B3a)
-  PUT  /grocery/extras   replace extras on the last menu (audit B3a)
+  GET    /grocery               categorised grocery list from the last weekly menu
+  GET    /grocery/export        downloadable grocery list (audit §5.16): CSV (default) or text
+  GET    /grocery/extras        user-added grocery extras on the last menu (audit B3a)
+  PUT    /grocery/extras        replace extras on the last menu (audit B3a)
+  GET    /grocery/purchased     checked-off items on the last menu (§13.3)
+  PUT    /grocery/purchased     replace the checked-off items list (§13.3)
+  POST   /grocery/purchased/<item>  toggle a single item's checked-off state (§13.3)
 """
 
 import csv
@@ -13,7 +16,14 @@ import logging
 
 from flask import Blueprint, jsonify, request, Response
 
-from services.grocery_service import build_grocery_list, get_extras, set_extras
+from services.grocery_service import (
+    build_grocery_list,
+    get_extras,
+    set_extras,
+    get_purchased,
+    set_purchased,
+    toggle_purchased,
+)
 
 grocery_bp = Blueprint("grocery_bp", __name__)
 logger = logging.getLogger(__name__)
@@ -61,6 +71,53 @@ def replace_extras() -> Response:
         return jsonify({"error": "Internal server error"}), 500
 
 
+# §13.3 — checked-off grocery items on the last weekly menu
+@grocery_bp.route("/grocery/purchased", methods=["GET"])
+def grocery_purchased() -> Response:
+    try:
+        result = get_purchased()
+        if isinstance(result, tuple):
+            error, status = result
+            return jsonify(error), status
+        return jsonify(result)
+    except Exception:
+        logger.exception("ERROR GET /grocery/purchased")
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@grocery_bp.route("/grocery/purchased", methods=["PUT"])
+def replace_purchased() -> Response:
+    data = request.get_json(silent=True) or {}
+    try:
+        items = data.get("items", []) if isinstance(data, dict) else []
+        result = set_purchased(items)
+        if isinstance(result, tuple):
+            error, status = result
+            return jsonify(error), status
+        return jsonify(result)
+    except Exception:
+        logger.exception("ERROR PUT /grocery/purchased")
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@grocery_bp.route("/grocery/purchased/<item>", methods=["POST"])
+def toggle_purchased_route(item: str) -> Response:
+    """Toggle a single item's checked-off state (§13.3).
+
+    The `<item>` path segment is URL-decoded by Flask; we normalize it server-side
+    (strip + lowercase) before matching against the stored purchased list.
+    """
+    try:
+        result = toggle_purchased(item)
+        if isinstance(result, tuple):
+            error, status = result
+            return jsonify(error), status
+        return jsonify(result)
+    except Exception:
+        logger.exception("ERROR POST /grocery/purchased/<item>")
+        return jsonify({"error": "Internal server error"}), 500
+
+
 @grocery_bp.route("/grocery/export", methods=["GET"])
 def export_grocery() -> Response:
     fmt = request.args.get("format", "csv").lower()
@@ -78,16 +135,20 @@ def export_grocery() -> Response:
         for category, items in result.items():
             buf.write(f"{category}\n")
             for i in items:
-                buf.write(f"  - {i['item']} ({i['qty']})\n")
+                # §13.3 — annotate checked items
+                prefix = "[x] " if i.get("purchased") else "[ ] "
+                buf.write(f"  - {prefix}{i['item']} ({i['qty']})\n")
             buf.write("\n")
         data, filename, mimetype = buf.getvalue(), "grocery_list.txt", "text/plain"
     else:
         buf = io.StringIO()
         writer = csv.writer(buf)
-        writer.writerow(["Category", "Item", "Quantity"])
+        writer.writerow(["Category", "Item", "Quantity", "Purchased"])
         for category, items in result.items():
             for i in items:
-                writer.writerow([category, i["item"], i["qty"]])
+                # §13.3 — mark purchased column as Yes/No
+                purchased = "Yes" if i.get("purchased") else "No"
+                writer.writerow([category, i["item"], i["qty"], purchased])
         data, filename, mimetype = buf.getvalue(), "grocery_list.csv", "text/csv"
 
     return Response(

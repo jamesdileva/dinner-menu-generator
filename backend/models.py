@@ -43,6 +43,11 @@ class WeeklyMenu(db.Model):
     # audit B3a — user-added grocery items (e.g. "oreos", "milk") not tied to a meal,
     # attached to the week this menu represents so they flow into /grocery + exports.
     extras = db.Column(db.JSON, nullable=True, default=lambda: [])
+    # §13.3 — item names the user has checked off the grocery list for this week.
+    # Stored as the *normalized* item key produced by INGREDIENT_MAP (same key used in
+    # build_grocery_list's grocery_totals dict), so it stays consistent across meal-derived
+    # ingredients and user-added extras.
+    purchased = db.Column(db.JSON, nullable=True, default=lambda: [])
 
 
 class UsedMeal(db.Model):
