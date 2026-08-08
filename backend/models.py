@@ -12,6 +12,22 @@ from flask_sqlalchemy import SQLAlchemy
 db = SQLAlchemy()
 
 
+class Snack(db.Model):
+    """Reusable snack/catalog items (§13.3b).
+
+    Unlike weekly extras (free-text strings on ``WeeklyMenu.extras``), snacks are a
+    persistent catalog the user can pick from across weeks.  Any ad-hoc extra can be
+    promoted to a snack via a star icon in the frontend grocery view.
+    """
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False, unique=True, index=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"id": self.id, "name": self.name}
+
+
 class Meal(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100))

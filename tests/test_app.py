@@ -204,3 +204,80 @@ def test_rate_limit_429(client):
     for _ in range(120):
         assert client.get("/health").status_code == 200
     assert client.get("/health").status_code == 429
+
+
+def test_snack_catalog_crud(client):
+    # §13.3b — full lifecycle: list (empty) → create → list → idempotent re-save → delete → list
+    r0 = client.get("/snacks")
+    assert r0.status_code == 200
+    assert r0.get_json() == {"snacks": []}
+
+    r1 = client.post("/snack", json={"name": "Oreos"}, headers=HDR)
+    assert r1.status_code == 201
+    s = r1.get_json()
+    assert s["created"] is True
+    assert s["snack"]["name"] == "Oreos"
+
+    r2 = client.get("/snacks")
+    assert r2.status_code == 200
+    snacks = r2.get_json()["snacks"]
+    assert len(snacks) == 1
+    snack_id = snacks[0]["id"]
+
+    # idempotent: re-adding the same snack name returns 200, created=false
+    r3 = client.post("/snack", json={"name": "oreos"}, headers=HDR)  # case-insensitive match
+    assert r3.status_code == 200
+    assert r3.get_json()["created"] is False
+
+    # delete
+    r4 = client.delete(f"/snack/{snack_id}", headers=HDR)
+    assert r4.status_code == 200
+
+    # deleting again -> 404
+    r5 = client.delete(f"/snack/{snack_id}", headers=HDR)
+    assert r5.status_code == 404
+
+    # empty again
+    assert client.get("/snacks").get_json() == {"snacks": []}
+
+
+def test_snack_missing_name(client):
+    r = client.post("/snack", json={"name": ""}, headers=HDR)
+    assert r.status_code == 400
+
+
+def test_promote_extra_to_snack(client):
+    # §13.3b — add an ad-hoc extra to the week, then promote it to the snack catalog
+    for i in range(7):
+        _add(client, f"Meal {i}", ["rice", "chicken"])
+    client.get("/menu/week")
+
+    # step 1: type an extra "pretzels"
+    r1 = client.put("/grocery/extras", json={"items": ["pretzels"]}, headers=HDR)
+    assert r1.get_json()["extras"] == ["pretzels"]
+
+    # step 2: promote it — now it exists in the catalog
+    r2 = client.post("/snack", json={"name": "pretzels"}, headers=HDR)
+    assert r2.status_code == 201
+    snacks = client.get("/snacks").get_json()["snacks"]
+    assert any(s["name"] == "pretzels" for s in snacks)
+
+    # step 3: the extra is still in the week's extras (no duplicate)
+    extras = client.get("/grocery/extras").get_json()["extras"]
+    assert "pretzels" in extras
+
+
+def test_snack_click_adds_to_extras(client):
+    # §13.3b — clicking a saved snack badge appends it to the current week's extras
+    client.post("/snack", json={"name": "Hummus"}, headers=HDR)
+    for i in range(7):
+        _add(client, f"Meal {i}", ["rice", "chicken"])
+    client.get("/menu/week")
+
+    # current extras (before)
+    before = client.get("/grocery/extras").get_json()["extras"]
+
+    # simulate clicking the badge: add "Hummus" to extras
+    next_extras = list(before) + ["Hummus"]
+    r = client.put("/grocery/extras", json={"items": next_extras}, headers=HDR)
+    assert "Hummus" in r.get_json()["extras"]

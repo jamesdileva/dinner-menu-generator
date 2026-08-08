@@ -4,6 +4,7 @@
 // current week's menu and folded into the categorized list + exports.
 // §13a.4: "Email list" mailto link (pre-existing) + CSV / text downloads.
 // §13.3: checkboxes + strikethrough for checked-off items; persisted per-menu.
+// §13.3b: saved-snack palette — promote any extra to a reusable catalog item.
 
 import { useState, useEffect } from "react";
 import { apiFetch } from "../api.js";
@@ -12,10 +13,17 @@ export default function GroceryList({ grocery, onGenerate }) {
   const [extras, setExtras] = useState(null);
   const [extra, setExtra] = useState("");
   const [err, setErr] = useState("");
+  const [snacks, setSnacks] = useState([]);
+  const [promotionState, setPromotionState] = useState({}); // item name -> "idle" | "promoting" | "saved"
 
   const loadExtras = () =>
     apiFetch("/grocery/extras")
       .then((r) => setExtras(r.extras || []))
+      .catch((e) => setErr(e.message));
+
+  const loadSnacks = () =>
+    apiFetch("/snacks")
+      .then((r) => setSnacks(r.snacks || []))
       .catch((e) => setErr(e.message));
 
   // keep the extra-items list in sync with the latest grocery generation
@@ -23,10 +31,14 @@ export default function GroceryList({ grocery, onGenerate }) {
     if (grocery) loadExtras();
   }, [grocery]);
 
-  const addExtra = () => {
-    const name = extra.trim();
-    if (!name) return;
-    const next = [...(extras || []), name];
+  useEffect(() => {
+    loadSnacks();
+  }, []);
+
+  const addExtra = (name = extra) => {
+    const n = name.trim();
+    if (!n) return;
+    const next = [...(extras || []), n];
     apiFetch("/grocery/extras", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -51,6 +63,39 @@ export default function GroceryList({ grocery, onGenerate }) {
         setExtras(r.extras);
         onGenerate();
       })
+      .catch((e) => setErr(e.message));
+  };
+
+  // §13.3b — promote an ad-hoc extra into the saved snack catalog
+  const promoteExtra = (itemName) => {
+    setPromotionState((p) => ({ ...p, [itemName]: "promoting" }));
+    apiFetch("/snack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: itemName }),
+    })
+      .then(() => {
+        setPromotionState((p) => ({ ...p, [itemName]: "saved" }));
+        loadSnacks();
+        // keep the star showing "saved" briefly
+        setTimeout(() => {
+          setPromotionState((p) => {
+            const copy = { ...p };
+            delete copy[itemName];
+            return copy;
+          });
+        }, 1500);
+      })
+      .catch((e) => {
+        setErr(e.message);
+        setPromotionState((p) => ({ ...p, [itemName]: "idle" }));
+      });
+  };
+
+  // §13.3b — remove a snack from the saved catalog (does not touch week extras)
+  const deleteSnack = (id) => {
+    apiFetch(`/snack/${id}`, { method: "DELETE" })
+      .then(() => loadSnacks())
       .catch((e) => setErr(e.message));
   };
 
@@ -85,6 +130,65 @@ export default function GroceryList({ grocery, onGenerate }) {
 
       {grocery && (
         <>
+          {/* §13.3b — saved snack palette */}
+          {snacks.length > 0 && (
+            <div style={{ marginTop: "15px" }}>
+              <div style={{ marginBottom: "6px", fontSize: "12px", color: "var(--text-muted)" }}>
+                Saved snacks (click to add to this week)
+              </div>
+              <div
+                className="row-gap"
+                style={{ gap: "6px", flexWrap: "wrap", alignItems: "center" }}
+              >
+                {snacks.map((s) => (
+                  <span
+                    key={s.id}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      background: "var(--bg-panel)",
+                      borderRadius: "4px",
+                      padding: "4px 8px",
+                      fontSize: "13px",
+                    }}
+                  >
+                    <button
+                      className="btn-sm"
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        padding: "0 4px",
+                        fontSize: "13px",
+                        color: "var(--text-h)",
+                        cursor: "pointer",
+                      }}
+                      onClick={() => addExtra(s.name)}
+                      title={`Add ${s.name} to this week's list`}
+                    >
+                      + {s.name}
+                    </button>
+                    <button
+                      className="btn-sm"
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        padding: 0,
+                        fontSize: "13px",
+                        color: "var(--text-muted)",
+                        cursor: "pointer",
+                      }}
+                      onClick={() => deleteSnack(s.id)}
+                      title={`Remove ${s.name} from saved snacks`}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="row-gap" style={{ marginTop: "12px", gap: "8px", flexWrap: "wrap" }}>
             <a className="link-btn" href="/grocery/export?format=csv" download>
               Download CSV
@@ -112,7 +216,7 @@ export default function GroceryList({ grocery, onGenerate }) {
               onKeyDown={(e) => e.key === "Enter" && addExtra()}
             />
             <div className="row-gap" style={{ gap: "6px" }}>
-              <button className="btn-sm" onClick={addExtra}>
+              <button className="btn-sm" onClick={() => addExtra()}>
                 Add
               </button>
             </div>
@@ -126,14 +230,37 @@ export default function GroceryList({ grocery, onGenerate }) {
 
             {Array.isArray(extras) && extras.length > 0 ? (
               <ul style={{ listStyle: "none", padding: 0, marginTop: "8px" }}>
-                {extras.map((item) => (
-                  <li key={item} className="list-item">
-                    <span>{item}</span>
-                    <button className="btn-sm" onClick={() => removeExtra(item)}>
-                      ✕
-                    </button>
-                  </li>
-                ))}
+                {extras.map((item) => {
+                  const pState = promotionState[item] || "idle";
+                  const isSaved = pState === "saved";
+                  return (
+                    <li key={item} className="list-item">
+                      <span>
+                        {item}{" "}
+                        <button
+                          className="btn-sm"
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            padding: "0 2px",
+                            fontSize: "12px",
+                            color: isSaved ? "var(--accent)" : "var(--text-muted)",
+                            cursor: "pointer",
+                            opacity: pState === "promoting" ? 0.5 : 1,
+                          }}
+                          onClick={() => promoteExtra(item)}
+                          title="Save to snacks catalog"
+                          disabled={pState === "promoting"}
+                        >
+                          {isSaved ? "★" : "☆"}
+                        </button>
+                      </span>
+                      <button className="btn-sm" onClick={() => removeExtra(item)}>
+                        ✕
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             ) : (
               <p style={{ opacity: 0.6, marginTop: "8px", fontSize: "13px" }}>

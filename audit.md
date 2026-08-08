@@ -1239,6 +1239,22 @@ Allow users to check off items as they shop. This is a core use case for a groce
   toggling persists immediately. CSV export adds a "Purchased" column; text export uses `[x]`/`[ ]`.
   Verified via `test_grocery_checkoff_toggle` (toggle on/off, state persists across refresh).
 
+### 13.3b Saved Snack Palette
+
+**Value:** High | **Effort:** Low
+
+Reusable snack/staple catalog: any ad-hoc grocery extra can be promoted to a saved
+catalog item, building up a curated list of frequently-added groceries over time.
+
+- [x] **FIXED 2026-08-08** — New `Snack` model (`id`, `name`, `created_at`) with a
+  case-insensitive unique index. Migration `161ee7d4a387`. API: `GET /snacks`,
+  `POST /snack` (idempotent — re-saving the same name returns 200, `created: false`),
+  `DELETE /snack/<id>` (404 on re-delete). Frontend `GroceryList.jsx` renders a
+  "Saved Snacks" badge bar above the extras field; clicking a badge adds it to the
+  current week's extras; a star icon (☆→★) on each ad-hoc extra promotes it to the
+  catalog. Verified via 4 pytest tests (full CRUD lifecycle, idempotent re-save,
+  promote-to-catalog, badge-add-to-extras).
+
 ### 13.4 Meal Detail View
 
 **Value:** High | **Effort:** Low

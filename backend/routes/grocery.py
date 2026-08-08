@@ -8,6 +8,9 @@ Blueprint: `grocery_bp`
   GET    /grocery/purchased     checked-off items on the last menu (§13.3)
   PUT    /grocery/purchased     replace the checked-off items list (§13.3)
   POST   /grocery/purchased/<item>  toggle a single item's checked-off state (§13.3)
+  GET    /snacks                list all saved snacks (§13.3b catalog)
+  POST   /snack                 add a snack to the catalog
+  DEL    /snack/<int:id>        delete a snack from the catalog
 """
 
 import csv
@@ -16,6 +19,8 @@ import logging
 
 from flask import Blueprint, jsonify, request, Response
 
+from models import Snack, db
+from utils import sanitize_text
 from services.grocery_service import (
     build_grocery_list,
     get_extras,
@@ -116,6 +121,43 @@ def toggle_purchased_route(item: str) -> Response:
     except Exception:
         logger.exception("ERROR POST /grocery/purchased/<item>")
         return jsonify({"error": "Internal server error"}), 500
+
+
+# §13.3b — saved snack catalog (promotable from week extras)
+@grocery_bp.route("/snacks", methods=["GET"])
+def list_snacks() -> Response:
+    snacks = Snack.query.order_by(Snack.name.asc()).all()
+    return jsonify({"snacks": [s.to_dict() for s in snacks]})
+
+
+@grocery_bp.route("/snack", methods=["POST"])
+def add_snack() -> Response:
+    data = request.get_json(silent=True) or {}
+    name = sanitize_text(data.get("name", ""), max_len=100)
+    if not name:
+        return jsonify({"error": "Snack name is required"}), 400
+
+    normalized = name.lower()
+    existing = Snack.query.filter(db.func.lower(Snack.name) == normalized).first()
+    if existing:
+        # idempotent: already saved — return it rather than 409 so the frontend
+        # doesn't flinch when re-saving the same snack.
+        return jsonify({"success": True, "snack": existing.to_dict(), "created": False}), 200
+
+    snack = Snack(name=name)
+    db.session.add(snack)
+    db.session.commit()
+    return jsonify({"success": True, "snack": snack.to_dict(), "created": True}), 201
+
+
+@grocery_bp.route("/snack/<int:id>", methods=["DELETE"])
+def delete_snack(id: int) -> Response:
+    snack = db.session.get(Snack, id)
+    if not snack:
+        return jsonify({"error": "Snack not found"}), 404
+    db.session.delete(snack)
+    db.session.commit()
+    return jsonify({"success": True})
 
 
 @grocery_bp.route("/grocery/export", methods=["GET"])
