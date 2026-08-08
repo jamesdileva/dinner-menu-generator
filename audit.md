@@ -670,6 +670,11 @@ The code uses emojis extensively in comments and print statements (e.g., `print(
 
 The backend code has inconsistent indentation, spacing, and naming conventions. Some functions use camelCase, others use snake_case. The frontend uses inline styles exclusively instead of CSS classes.
 
+- [x] **FIXED 2026-08-08** — Backend: `black` + `isort` + `flake8` configured in
+  `pyproject.toml`/`.flake8`; all backend + test files are now black-formatted. Frontend
+  styles consolidated into shared CSS classes in `index.css` (audit §13a). Remaining
+  inline styles are intentional per-project convention (no CSS modules/external sheets).
+
 ### 6.3 No `.editorconfig`
 
 No editor configuration file. Different developers may use different indentation, line endings, etc.
@@ -685,6 +690,10 @@ No editor configuration file. Different developers may use different indentation
 No pre-commit hooks for linting, formatting, or testing.
 
 **Fix:** Add pre-commit hooks using `pre-commit` framework.
+
+- [x] **FIXED 2026-08-08** — Added `.pre-commit-config.yaml` with `black`, `isort`, and
+  `flake8` hooks (line-length 100); `CONTRIBUTING.md` documents
+  `pip install pre-commit && pre-commit install`.
 
 ### 6.5 Frontend uses inline styles exclusively
 
@@ -702,6 +711,13 @@ All styling in `App.jsx` is done via inline style objects. This makes the code v
 The frontend has a dark color scheme hardcoded (`#121212` background, `#1e1e1e` cards) but there's no toggle. The `index.css` has dark mode styles but they're not connected to the app.
 
 **Fix:** Add a dark/light mode toggle.
+
+- [x] **FIXED 2026-08-08** — Added a dark/light toggle button (🌙/☀️) in the App.jsx header
+  that sets a `data-theme` attribute on `#root` (persisted to `localStorage`); `index.css`
+  now ships real `--bg`/`--text`/`--accent` CSS variables for both `[data-theme="light"]`
+  and `[data-theme="dark"]` (with `prefers-color-scheme` as the initial default). The
+  existing inline-style hexes were replaced with `var(...)` calls so the theme is live.
+  See audit §13a.
 
 ### 6.7 No responsive design
 
@@ -976,6 +992,11 @@ There's no `pyproject.toml`, `setup.cfg`, or `.flake8` file. No `black`, `isort`
 
 **Fix:** Add `pyproject.toml` with formatting and linting configuration.
 
+- [x] **FIXED 2026-08-07** — Added `pyproject.toml` (black + isort config, line-length 100,
+  `extend-exclude = "migrations"` for black/isort) and `.flake8` (`max-line-length=100`,
+  `extend-ignore=E203,W503,E501`). `.pre-commit-config.yaml` wires all three into pre-commit.
+  See §6.4 (pre-commit hooks) and §6.2 (formatting standardized).
+
 ### 10.2 No code style guide for JavaScript
 
 The `eslint.config.js` exists but the rules are minimal. There's no `prettier` configuration.
@@ -993,6 +1014,12 @@ The `eslint.config.js` exists but the rules are minimal. There's no `prettier` c
 The backend code has no type hints, making it harder to understand and maintain.
 
 **Fix:** Add type hints to all functions.
+
+- [x] **FIXED 2026-08-08** — Added type annotations to all public functions across
+  `models.py`, `utils.py`, `menu_service.py`, `grocery_service.py`,
+  `nutrition_service.py`, `config.py`, `cli.py`, `limiter.py`, and all 4 route modules.
+  Return types include `Response`, `Tuple[Dict, int]` for error returns, and `Union`
+  for service helpers that return either success or error tuples.
 
 ### 10.5 No docstrings
 
@@ -1076,11 +1103,15 @@ The README has:
 - Troubleshooting guide
 - Contribution guidelines
 
+- [x] **FIXED 2026-08-08** — README fully rewritten: architecture diagram, Quick Start (pre-built + from-source), API table with query params, security/rate-limit docs, data model tables, config + database migration instructions, dev workflow, troubleshooting, and links to CHANGELOG/LICENSE/CONTRIBUTING.
+
 ### 12.2 No API documentation
 
 There's no OpenAPI/Swagger spec, no Postman collection, no API documentation.
 
 **Fix:** Add an OpenAPI spec or use `flask-smorest` for auto-generated API docs.
+
+- [x] **FIXED 2026-08-08** — README now includes a complete API reference table (all endpoints, query params, request/response shapes, security headers, rate limits). An OpenAPI/Swagger spec is still future work but the human-readable docs cover all endpoints.
 
 ### 12.3 No CONTRIBUTING.md
 
@@ -1088,11 +1119,15 @@ No contribution guidelines.
 
 **Fix:** Add a `CONTRIBUTING.md` file.
 
+- [x] **FIXED 2026-08-08** — Added `CONTRIBUTING.md` with setup, code style (black/isort/flake8 + lint), testing, and PR workflow.
+
 ### 12.4 No LICENSE file
 
 The README says "MIT (or whatever you want)" but there's no actual LICENSE file.
 
 **Fix:** Add an MIT LICENSE file.
+
+- [x] **FIXED 2026-08-08** — Added MIT LICENSE file (audit §12.4).
 
 ### 12.5 No CHANGELOG
 
@@ -1100,17 +1135,26 @@ No changelog to track changes between versions.
 
 **Fix:** Add a `CHANGELOG.md` file.
 
+- [x] **FIXED 2026-08-08** — Added `CHANGELOG.md` with Unreleased section + v1.0.0 baseline.
+
 ### 12.6 No architecture documentation
 
 No diagrams, no architecture decision records (ADRs), no explanation of how the components interact.
 
 **Fix:** Add architecture documentation.
 
+- [x] **FIXED 2026-08-08** — README now includes a full architecture diagram (file tree), the data model tables, and AGENTS.md documents the development workflow.
+
 ### 12.7 `example.env` is minimal
 
 Only contains `OPENAI_API_KEY` and `DATABASE_URL`, but the app doesn't use either of these.
 
 **Fix:** Update `example.env` to reflect actual configuration needs.
+
+- [x] **FIXED 2026-08-08** — Removed the stale `OPENAI_API_KEY` placeholder; the file now
+  documents the only real override (`DATABASE_URL=sqlite:///dinner.db`) with inline
+  comments explaining usage. The README data/model/API sections and CONTRIBUTING.md were
+  also expanded.
 
 ### 12.8 No AGENTS.md or similar
 
