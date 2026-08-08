@@ -1224,6 +1224,13 @@ Allow users to check off items as they shop. This is a core use case for a groce
 
 **Implementation:** Add a `purchased` boolean to grocery list items, add checkboxes in the frontend.
 
+- [x] **FIXED 2026-08-08** — Added a `purchased` JSON column to `WeeklyMenu` (storing normalized
+  item names) + `GET/PUT /grocery/purchased` (bulk) and `POST /grocery/purchased/<item>` (toggle)
+  routes. `build_grocery_list()` now includes a `purchased: bool` flag per item. The frontend
+  `GroceryList.jsx` renders a checkbox per item with line-through + reduced opacity when checked;
+  toggling persists immediately. CSV export adds a "Purchased" column; text export uses `[x]`/`[ ]`.
+  Verified via `test_grocery_checkoff_toggle` (toggle on/off, state persists across refresh).
+
 ### 13.4 Meal Detail View
 
 **Value:** High | **Effort:** Low
