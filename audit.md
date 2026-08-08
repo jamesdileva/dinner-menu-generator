@@ -750,6 +750,10 @@ If any component throws an error, the entire app crashes with no fallback UI.
 
 **Fix:** Add error boundaries.
 
+- [x] **FIXED 2026-08-08** — New `frontend/src/components/ErrorBoundary.jsx` wraps `<App />`
+  in `main.jsx`. Catches render errors and shows a fallback card with a "Reload App" button.
+  Only logs in DEV mode.
+
 ### 6.11 No loading states in frontend
 
 When fetching data, there's no loading indicator. The UI just appears/disappears.
@@ -776,6 +780,10 @@ Deleting a meal or rerolling a day has no confirmation dialog.
 ### 6.14 No keyboard shortcuts
 
 No keyboard shortcuts for common actions (e.g., Enter to add a meal, Escape to cancel).
+
+- [x] **FIXED 2026-08-08** — Added Enter-key handlers to AddMeal inputs and the edit form
+  in `App.jsx`. Escape-key handler added to cancel active edit or dismiss the undo toast.
+  Space toggles native checkboxes; Enter/Space activate all `<button>` elements.
 
 ### 6.15 No accessibility attributes
 
