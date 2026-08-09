@@ -128,13 +128,19 @@ python -m PyInstaller --noconfirm --onefile --windowed \
   --add-data "../frontend/dist;frontend/dist" \
   --add-data "migrations;migrations" \
   --add-data "ingredient_rules.json;." \
-  --add-data "meal_name_fixes.json;." \
-  --add-data "nutrition_rules.json;." \
-  app.py
+    --add-data "meal_name_fixes.json;." \
+    --add-data "nutrition_rules.json;." \
+    --exclude-module torch --exclude-module torchvision --exclude-module torchaudio \
+    --exclude-module ultralytics --exclude-module xformers --exclude-module accelerate \
+    --exclude-module kokoro --exclude-module optimum \
+    app.py
 ```
-The two `--add-data` JSON lines bundle the config-driven ingredient rules (§5.9) and the
+The `--add-data` JSON lines bundle the config-driven ingredient rules (§5.9) and the
 meal-name typo map (§5.19) into the frozen `_MEIPASS` directory so OCR import + name
-cleaning keep working in the packaged exe.
+cleaning keep working in the packaged exe. The `--exclude-module` flags prevent
+PyInstaller from bundling stray heavy packages (torch, ultralytics, etc.) that may be
+present in the global site-packages but are not project dependencies — without these
+the build can take 10+ minutes and produce a 300+ MB binary.
 
 ### Typecheck / Backend Lint
 - No backend linter is configured. `.env` is now loaded in `app.py` via `python-dotenv`
@@ -162,6 +168,12 @@ cleaning keep working in the packaged exe.
 | GET    | `/grocery`          | Generate a categorized grocery list from last menu  |
 | GET    | `/grocery/export`   | Download last grocery list as CSV (default) or text |
 | GET,PUT| `/grocery/extras`   | Get/replace user-added shopping items on the last menu (B3a) |
+| GET    | `/grocery/purchased`   | List checked-off grocery items (§13.3)                    |
+| PUT    | `/grocery/purchased`   | Replace the checked-off items list (§13.3)                |
+| POST   | `/grocery/purchased/:item` | Toggle a single item's checked-off state (§13.3)      |
+| GET    | `/snacks`              | List all saved snacks (§13.3b catalog)                    |
+| POST   | `/snack`               | Add a snack to the catalog (idempotent) (§13.3b)          |
+| DEL    | `/snack/:id`           | Delete a snack from the catalog (§13.3b)                  |
 | GET    | `/insights`         | Macro overview + deficiency flags + swap tips over last menus (B2) |
 | GET    | `/export`           | Export all meals and menus as JSON                  |
 | POST   | `/import`           | Import meals and menus from JSON body               |
@@ -169,10 +181,11 @@ cleaning keep working in the packaged exe.
 
 ## Data Model
 
-SQLite database (`dinner.db`, stored in `backend/instance/`). Three tables:
+SQLite database (`dinner.db`, stored in `backend/instance/`). Four tables:
 
 - **Meal** — `id` (int, PK), `name` (string), `ingredients` (JSON list), `category` (string, opt)
-- **WeeklyMenu** — `id` (int, PK), `meals` (JSON, keyed by day name: Mon–Sun), `extras` (JSON list of user-added grocery items, opt)
+- **Snack** — `id` (int, PK), `name` (string, unique), `created_at` (datetime) — §13.3b reusable snack/staple catalog
+- **WeeklyMenu** — `id` (int, PK), `meals` (JSON, keyed by day name: Mon–Sun), `extras` (JSON list of user-added grocery items, opt), `purchased` (JSON list of checked-off items, opt)
 - **UsedMeal** — `id` (int, PK), `date` (string YYYY-MM-DD), `meal_id` (int)
   (tracks which meals were picked today for the `/menu/today` no-repeat rule)
 
