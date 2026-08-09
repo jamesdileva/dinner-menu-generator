@@ -1342,13 +1342,15 @@ The frontend already has a dark color scheme; just add a toggle.
 
 **Implementation:** Add a toggle button that switches CSS classes.
 
-### 13.14 Mobile-Responsive Design
+### 13.14 Mobile-Responsive Design (FIXED)
 
-**Value:** Medium | **Effort:** Medium
+The frontend is now responsive. Media queries for mobile/tablet devices
+added to `index.css` with breakpoints at 1024px, 768px, and 480px.
+`#root` uses `max-width: 100%` instead of fixed 1126px, flex-wrap
+applied to `.row-gap` and `.row-between` for button wrapping, and
+padding adjustments for `.app-shell` at mobile widths.
 
-The frontend is not responsive. Add media queries for mobile devices.
-
-**Implementation:** Add responsive CSS with media queries.
+**Implementation:** Added responsive CSS with media queries.
 
 ### 13.15 Data Backup Automation
 
@@ -1420,6 +1422,106 @@ Sync data across devices using a cloud backend.
 Use AI (OpenAI API) to suggest meals based on ingredients on hand, dietary preferences, or past ratings.
 
 **Implementation:** Integrate with OpenAI API, add a "Suggest Meals" button.
+
+---
+
+## 16. Deferred Bonus Features (Ollama Integration)
+
+> **Rationale (from user conversation, post-Phase D):** The following features were discussed as
+> potential enhancements using a local LLM (Ollama) to supplement — not replace — the existing
+> rule-based systems. The architecture pattern is: run the fast local rules first, then optionally
+> ask Ollama to enhance/supplement the results. A global toggle (`USE_OLLAMA = false` by default)
+> enables Ollama calls; when disabled or when Ollama is unreachable, the app falls back to
+> pure rule-based output. All Ollama traffic is local (`http://localhost:11434`), so no cloud
+> dependency is introduced.
+
+**Shared architecture sketch (all features):**
+- A `USE_OLLAMA` config toggle in `config.py` (env-overridable via `DATABASE_URL`-style pattern: `OLLAMA_ENABLED=true/false`).
+- An `services/llm_service.py` module with a single `call_ollama(prompt: str, timeout: 10) -> str | None` function that POSTs to `http://localhost:11434/api/generate`, returns the response text, or returns `None` on connection error/timeout — so callers can fall back gracefully.
+- Frontend toggle in Settings (persisted to `localStorage.theme`-style pattern).
+
+### 16.1 Ollama Ingredient Enhancement
+
+**Value:** Medium | **Effort:** Low
+
+The current `generate_ingredients()` (§5.9) uses a keyword-based rule engine (`ingredient_rules.json`)
+to guess ingredients from a meal name. For example, "Chicken Burrito" yields: chicken, rice, beans,
+cheese, tortilla.
+
+**Enhancement:** When `USE_OLLAMA` is enabled, after `generate_ingredients()` runs, send the meal
+name + rule-based ingredients to Ollama with a prompt like: "A meal called 'Chicken Burrito' has
+these guessed ingredients: chicken, rice, beans, cheese, tortilla. What other ingredients or
+substitutions should be considered? Return a JSON array of ingredient strings only." Merge the
+LLM output into the existing list (dedupe via `normalize_ingredients`).
+
+**Fallback:** If Ollama is down or times out, keep the rule-based result unchanged.
+
+### 16.2 Ollama Grocery List Enhancement
+
+**Value:** Medium | **Effort:** Medium
+
+The current `build_grocery_list()` (§5.11) groups ingredients by category and applies count-based
+pluralization. The output is plain item+quantity pairs.
+
+**Enhancement:** When `USE_OLLAMA` is enabled, after the categorized list is built, send the full
+grouped list to Ollama with a prompt like: "Here is a categorized grocery list with quantities.
+Reorganize it into the optimal shopping order (store layout order: produce → meat → dairy →
+pantry → frozen), and suggest any missing items based on the meals in this week's menu. Return
+JSON in the same {category: [{item, qty}]} format." This optimizes shopping trip flow and catches
+gaps the rule-based categorizers miss.
+
+**Fallback:** Return the rule-based list unchanged if Ollama is unavailable.
+
+### 16.3 Ollama Nutrition Insights Enhancement
+
+**Value:** Medium | **Effort:** Medium
+
+The current `insights()` (§13.18) uses presence-based macro detection via `nutrition_rules.json`
+(53 curated ingredients mapped to tags: protein/veg/dairy/carbs/fiber/healthy_fat). It raises
+`low <macro>` flags and emits simple swap suggestions.
+
+**Enhancement:** When `USE_OLLAMA` is enabled, after the rule-based insight is generated, send the
+macro counts + flags + swap suggestions + the raw weekly menu meals to Ollama with a prompt like:
+"Here is this week's planned menu and a nutrition analysis. The analysis flags low dairy and low
+fiber. Suggest more specific improvements: alternative ingredient swaps, additional side dishes,
+or meal modifications to address these deficiencies. Return text only." This adds nuance beyond
+the rule-based keyword matching.
+
+**Fallback:** Return the rule-based insight unchanged if Ollama is unavailable.
+
+### 16.4 Ollama Meal Suggestions (Recipe Generation)
+
+**Value:** Low | **Effort:** Medium
+
+Currently, the only way to add meals is manual entry or OCR upload. There is no way to generate
+completely new meal ideas.
+
+**Enhancement:** Add a "Suggest Meal" button in the AddMeal card. When `USE_OLLAMA` is enabled,
+send the user's existing meal names + any provided preferences to Ollama with a prompt like:
+"Generate 3 new dinner recipe ideas based on these existing meals: [list]. Each should include
+a name and ingredient list. Return JSON: [{name, ingredients: [...]}]." The frontend displays
+the suggestions inline with "+ Add" buttons that pre-fill the AddMeal form (name + ingredients).
+
+When Ollama is disabled, this button shows a tooltip: "Enable Ollama in settings for AI suggestions."
+
+**Fallback:** Button is hidden/disabled when `USE_OLLAMA` is off.
+
+### 16.5 Takeout Randomizer Enhancement
+
+**Value:** Low | **Effort:** Low
+
+The current `/menu/takeout` picks a random spot from a static `fast_food_spots` list with no
+categorization.
+
+**Enhancement:** When `USE_OLLAMA` is enabled, after a random takeout spot is picked, send the
+current week's menu meals + the picked spot to Ollama: "This week's meals are heavy on Italian
+and Mexican. We picked 'Taco Bell'. Suggest 2 alternative takeout options that complement this
+week's cuisine balance (avoid Italian/Mexican). Return as a JSON array of strings." Shows the
+suggestions alongside the random pick.
+
+When Ollama is disabled, the endpoint returns just the random pick (current behavior).
+
+**Fallback:** Return just the random pick if Ollama is unavailable.
 
 ---
 

@@ -318,11 +318,11 @@ export default function App() {
         </div>
       )}
 
-      {/* WEEKLY MENU */}
-      <Menu menu={menu} onGenerate={loadMenu} onReroll={rerollDay} />
-
-      {/* GROCERY LIST */}
-      <GroceryList grocery={grocery} onGenerate={loadGrocery} />
+      {/* WEEKLY MENU + GROCERY LIST (side-by-side on desktop, stacked on mobile) */}
+      <div className="main-grid">
+        <Menu menu={menu} onGenerate={loadMenu} onReroll={rerollDay} />
+        <GroceryList grocery={grocery} onGenerate={loadGrocery} />
+      </div>
 
       {/* QUICK PICK */}
       <div className="card">
