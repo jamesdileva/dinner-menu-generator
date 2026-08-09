@@ -4,7 +4,7 @@
 // current week's menu and folded into the categorized list + exports.
 // §13a.4: "Email list" mailto link (pre-existing) + CSV / text downloads.
 // §13.3: checkboxes + strikethrough for checked-off items; persisted per-menu.
-// §13.3b: saved-snack palette — promote any extra to a reusable catalog item.
+// §13.3b: saved-grocery catalog — snacks + staples, auto-saved from the extras field.
 
 import { useState, useEffect } from "react";
 import { apiFetch } from "../api.js";
@@ -13,17 +13,18 @@ export default function GroceryList({ grocery, onGenerate }) {
   const [extras, setExtras] = useState(null);
   const [extra, setExtra] = useState("");
   const [err, setErr] = useState("");
-  const [snacks, setSnacks] = useState([]);
-  const [promotionState, setPromotionState] = useState({}); // item name -> "idle" | "promoting" | "saved"
+  const [savings, setSavings] = useState([]);
+  // §13.3b — track which items are being saved so the UI can show loading state
+  const [savingState, setSavingState] = useState({}); // item name -> "idle" | "saving" | "saved"
 
   const loadExtras = () =>
     apiFetch("/grocery/extras")
       .then((r) => setExtras(r.extras || []))
       .catch((e) => setErr(e.message));
 
-  const loadSnacks = () =>
-    apiFetch("/snacks")
-      .then((r) => setSnacks(r.snacks || []))
+  const loadSavings = () =>
+    apiFetch("/savings")
+      .then((r) => setSavings(r.savings || []))
       .catch((e) => setErr(e.message));
 
   // keep the extra-items list in sync with the latest grocery generation
@@ -32,9 +33,10 @@ export default function GroceryList({ grocery, onGenerate }) {
   }, [grocery]);
 
   useEffect(() => {
-    loadSnacks();
+    loadSavings();
   }, []);
 
+  // §13.3b — when an extra is added, auto-save it to the saved-grocery catalog
   const addExtra = (name = extra) => {
     const n = name.trim();
     if (!n) return;
@@ -48,8 +50,36 @@ export default function GroceryList({ grocery, onGenerate }) {
         setExtras(r.extras);
         setExtra("");
         onGenerate(); // refresh the categorized list so the extra appears
+        // auto-save to the saved-grocery catalog (idempotent — skips if already saved)
+        saveToCatalog(n);
       })
       .catch((e) => setErr(e.message));
+  };
+
+  // §13.3b — upsert an item into the saved-grocery catalog
+  const saveToCatalog = (itemName) => {
+    setSavingState((p) => ({ ...p, [itemName]: "saving" }));
+    apiFetch("/saving", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: itemName }),
+    })
+      .then(() => {
+        setSavingState((p) => ({ ...p, [itemName]: "saved" }));
+        loadSavings();
+        // brief visual feedback
+        setTimeout(() => {
+          setSavingState((p) => {
+            const copy = { ...p };
+            delete copy[itemName];
+            return copy;
+          });
+        }, 1500);
+      })
+      .catch((e) => {
+        setErr(e.message);
+        setSavingState((p) => ({ ...p, [itemName]: "idle" }));
+      });
   };
 
   const removeExtra = (item) => {
@@ -66,36 +96,15 @@ export default function GroceryList({ grocery, onGenerate }) {
       .catch((e) => setErr(e.message));
   };
 
-  // §13.3b — promote an ad-hoc extra into the saved snack catalog
-  const promoteExtra = (itemName) => {
-    setPromotionState((p) => ({ ...p, [itemName]: "promoting" }));
-    apiFetch("/snack", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: itemName }),
-    })
-      .then(() => {
-        setPromotionState((p) => ({ ...p, [itemName]: "saved" }));
-        loadSnacks();
-        // keep the star showing "saved" briefly
-        setTimeout(() => {
-          setPromotionState((p) => {
-            const copy = { ...p };
-            delete copy[itemName];
-            return copy;
-          });
-        }, 1500);
-      })
-      .catch((e) => {
-        setErr(e.message);
-        setPromotionState((p) => ({ ...p, [itemName]: "idle" }));
-      });
+  // §13.3b — click a saved-grocery badge to add it to the current week's extras
+  const addFromCatalog = (name) => {
+    addExtra(name);
   };
 
-  // §13.3b — remove a snack from the saved catalog (does not touch week extras)
-  const deleteSnack = (id) => {
-    apiFetch(`/snack/${id}`, { method: "DELETE" })
-      .then(() => loadSnacks())
+  // §13.3b — delete a saved-grocery item from the catalog
+  const deleteSaving = (id) => {
+    apiFetch(`/saving/${id}`, { method: "DELETE" })
+      .then(() => loadSavings())
       .catch((e) => setErr(e.message));
   };
 
@@ -103,7 +112,6 @@ export default function GroceryList({ grocery, onGenerate }) {
   const toggleItem = (itemName) => {
     apiFetch(`/grocery/purchased/${encodeURIComponent(itemName)}`, { method: "POST" })
       .then(() => {
-        // optimistic: refresh the grocery list to pick up the new purchased state
         onGenerate();
       })
       .catch((e) => setErr(e.message));
@@ -121,6 +129,10 @@ export default function GroceryList({ grocery, onGenerate }) {
       .join("\n\n");
   };
 
+  // §13.3b — split saved groceries into snacks and staples
+  const snacks = savings.filter((s) => s.group === "snacks");
+  const staples = savings.filter((s) => s.group === "staples");
+
   return (
     <div className="card">
       <h2>Grocery List</h2>
@@ -130,62 +142,71 @@ export default function GroceryList({ grocery, onGenerate }) {
 
       {grocery && (
         <>
-          {/* §13.3b — saved snack palette */}
-          {snacks.length > 0 && (
+          {/* §13.3b — saved grocery palette: snacks + staples */}
+          {savings.length > 0 && (
             <div style={{ marginTop: "15px" }}>
-              <div style={{ marginBottom: "6px", fontSize: "12px", color: "var(--text-muted)" }}>
-                Saved snacks (click to add to this week)
-              </div>
-              <div
-                className="row-gap"
-                style={{ gap: "6px", flexWrap: "wrap", alignItems: "center" }}
-              >
-                {snacks.map((s) => (
-                  <span
-                    key={s.id}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      background: "var(--bg-panel)",
-                      borderRadius: "4px",
-                      padding: "4px 8px",
-                      fontSize: "13px",
-                    }}
-                  >
-                    <button
-                      className="btn-sm"
-                      style={{
-                        background: "transparent",
-                        border: "none",
-                        padding: "0 4px",
-                        fontSize: "13px",
-                        color: "var(--text-h)",
-                        cursor: "pointer",
-                      }}
-                      onClick={() => addExtra(s.name)}
-                      title={`Add ${s.name} to this week's list`}
+              {[
+                { label: "Snacks", items: snacks },
+                { label: "Staples", items: staples },
+              ].map(({ label, items }) =>
+                items.length > 0 ? (
+                  <div key={label} style={{ marginTop: "12px" }}>
+                    <div style={{ marginBottom: "6px", fontSize: "12px", color: "var(--text-muted)" }}>
+                      Saved {label.toLowerCase()} (click to add to this week)
+                    </div>
+                    <div
+                      className="row-gap"
+                      style={{ gap: "6px", flexWrap: "wrap", alignItems: "center" }}
                     >
-                      + {s.name}
-                    </button>
-                    <button
-                      className="btn-sm"
-                      style={{
-                        background: "transparent",
-                        border: "none",
-                        padding: 0,
-                        fontSize: "13px",
-                        color: "var(--text-muted)",
-                        cursor: "pointer",
-                      }}
-                      onClick={() => deleteSnack(s.id)}
-                      title={`Remove ${s.name} from saved snacks`}
-                    >
-                      ✕
-                    </button>
-                  </span>
-                ))}
-              </div>
+                      {items.map((s) => (
+                        <span
+                          key={s.id}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            background: "var(--bg-panel)",
+                            borderRadius: "4px",
+                            padding: "4px 8px",
+                            fontSize: "13px",
+                          }}
+                        >
+                          <button
+                            className="btn-sm"
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              padding: "0 4px",
+                              fontSize: "13px",
+                              color: "var(--text-h)",
+                              cursor: "pointer",
+                            }}
+                            onClick={() => addFromCatalog(s.name)}
+                            title={`Add ${s.name} to this week's list`}
+                          >
+                            + {s.name}
+                          </button>
+                          <button
+                            className="btn-sm"
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              padding: 0,
+                              fontSize: "13px",
+                              color: "var(--text-muted)",
+                              cursor: "pointer",
+                            }}
+                            onClick={() => deleteSaving(s.id)}
+                            title={`Remove ${s.name} from saved groceries`}
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null
+              )}
             </div>
           )}
 
@@ -206,7 +227,7 @@ export default function GroceryList({ grocery, onGenerate }) {
             </a>
           </div>
 
-          {/* audit B3a — custom grocery items */}
+          {/* audit B3a — custom grocery items (auto-saved to catalog on add) */}
           <div style={{ marginTop: "15px" }}>
             <input
               className="input-field"
@@ -231,29 +252,28 @@ export default function GroceryList({ grocery, onGenerate }) {
             {Array.isArray(extras) && extras.length > 0 ? (
               <ul style={{ listStyle: "none", padding: 0, marginTop: "8px" }}>
                 {extras.map((item) => {
-                  const pState = promotionState[item] || "idle";
-                  const isSaved = pState === "saved";
+                  const sState = savingState[item] || "idle";
+                  const autoSaved = savings.some((s) => s.name.toLowerCase() === item.toLowerCase());
                   return (
                     <li key={item} className="list-item">
                       <span>
                         {item}{" "}
-                        <button
-                          className="btn-sm"
-                          style={{
-                            background: "transparent",
-                            border: "none",
-                            padding: "0 2px",
-                            fontSize: "12px",
-                            color: isSaved ? "var(--accent)" : "var(--text-muted)",
-                            cursor: "pointer",
-                            opacity: pState === "promoting" ? 0.5 : 1,
-                          }}
-                          onClick={() => promoteExtra(item)}
-                          title="Save to snacks catalog"
-                          disabled={pState === "promoting"}
-                        >
-                          {isSaved ? "★" : "☆"}
-                        </button>
+                        {autoSaved ? (
+                          <span style={{ fontSize: "11px", color: "var(--accent)", opacity: 0.7 }}>
+                            saved ★
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              fontSize: "12px",
+                              color: sState === "saved" ? "var(--accent)" : "var(--text-muted)",
+                              opacity: sState === "saving" ? 0.5 : 1,
+                            }}
+                            title="Auto-saved to catalog"
+                          >
+                            {sState === "saving" ? "saving…" : ""}
+                          </span>
+                        )}
                       </span>
                       <button className="btn-sm" onClick={() => removeExtra(item)}>
                         ✕

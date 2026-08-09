@@ -8,9 +8,9 @@ Blueprint: `grocery_bp`
   GET    /grocery/purchased     checked-off items on the last menu (§13.3)
   PUT    /grocery/purchased     replace the checked-off items list (§13.3)
   POST   /grocery/purchased/<item>  toggle a single item's checked-off state (§13.3)
-  GET    /snacks                list all saved snacks (§13.3b catalog)
-  POST   /snack                 add a snack to the catalog
-  DEL    /snack/<int:id>        delete a snack from the catalog
+  GET    /savings               list all saved groceries (§13.3b catalog, snacks + staples)
+  POST   /saving                add an item to the catalog (auto-groups as snack/staple)
+
 """
 
 import csv
@@ -19,8 +19,8 @@ import logging
 
 from flask import Blueprint, jsonify, request, Response
 
-from models import Snack, db
-from utils import sanitize_text
+from models import SavedGrocery, db
+from utils import sanitize_text, categorize_ingredient
 from services.grocery_service import (
     build_grocery_list,
     get_extras,
@@ -123,41 +123,65 @@ def toggle_purchased_route(item: str) -> Response:
         return jsonify({"error": "Internal server error"}), 500
 
 
-# §13.3b — saved snack catalog (promotable from week extras)
-@grocery_bp.route("/snacks", methods=["GET"])
-def list_snacks() -> Response:
-    snacks = Snack.query.order_by(Snack.name.asc()).all()
-    return jsonify({"snacks": [s.to_dict() for s in snacks]})
+# §13.3b — persistent grocery catalog (snacks + staples); renamed from Snack → SavedGrocery
+@grocery_bp.route("/savings", methods=["GET"])
+def list_savings() -> Response:
+    savings = SavedGrocery.query.order_by(SavedGrocery.name.asc()).all()
+    return jsonify({"savings": [s.to_dict() for s in savings]})
 
 
-@grocery_bp.route("/snack", methods=["POST"])
-def add_snack() -> Response:
+@grocery_bp.route("/saving", methods=["POST"])
+def add_saving() -> Response:
     data = request.get_json(silent=True) or {}
     name = sanitize_text(data.get("name", ""), max_len=100)
     if not name:
-        return jsonify({"error": "Snack name is required"}), 400
+        return jsonify({"error": "Item name is required"}), 400
 
     normalized = name.lower()
-    existing = Snack.query.filter(db.func.lower(Snack.name) == normalized).first()
+    existing = SavedGrocery.query.filter(db.func.lower(SavedGrocery.name) == normalized).first()
     if existing:
         # idempotent: already saved — return it rather than 409 so the frontend
-        # doesn't flinch when re-saving the same snack.
-        return jsonify({"success": True, "snack": existing.to_dict(), "created": False}), 200
+        # doesn't flinch when re-saving the same item.
+        return jsonify({"success": True, "saving": existing.to_dict(), "created": False}), 200
 
-    snack = Snack(name=name)
-    db.session.add(snack)
+    # §13.3b — auto-categorize into snacks vs. staples using the same aisle logic
+    # the grocery builder uses (categorize_ingredient expects lowercase input).
+    category = categorize_ingredient(name.lower())
+    group = "snacks" if category == "Snacks" else "staples"
+
+    saving = SavedGrocery(name=name, group=group)
+    db.session.add(saving)
     db.session.commit()
-    return jsonify({"success": True, "snack": snack.to_dict(), "created": True}), 201
+    return jsonify({"success": True, "saving": saving.to_dict(), "created": True}), 201
+
+
+@grocery_bp.route("/saving/<int:id>", methods=["DELETE"])
+def delete_saving(id: int) -> Response:
+    saving = db.session.get(SavedGrocery, id)
+    if not saving:
+        return jsonify({"error": "Item not found"}), 404
+    db.session.delete(saving)
+    db.session.commit()
+    return jsonify({"success": True})
+
+
+# §13.3b — backward-compatible aliases (old /snacks, /snack, /snack/<id> endpoints)
+@grocery_bp.route("/snacks", methods=["GET"])
+def list_snacks_alias() -> Response:
+    """@deprecated use /savings. Kept for backward-compat with existing frontend deployments."""
+    return list_savings()
+
+
+@grocery_bp.route("/snack", methods=["POST"])
+def add_snack_alias() -> Response:
+    """@deprecated use /saving. Kept for backward-compat."""
+    return add_saving()
 
 
 @grocery_bp.route("/snack/<int:id>", methods=["DELETE"])
-def delete_snack(id: int) -> Response:
-    snack = db.session.get(Snack, id)
-    if not snack:
-        return jsonify({"error": "Snack not found"}), 404
-    db.session.delete(snack)
-    db.session.commit()
-    return jsonify({"success": True})
+def delete_snack_alias(id: int) -> Response:
+    """@deprecated use /saving/<id>. Kept for backward-compat."""
+    return delete_saving(id)
 
 
 @grocery_bp.route("/grocery/export", methods=["GET"])

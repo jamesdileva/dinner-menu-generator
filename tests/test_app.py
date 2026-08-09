@@ -206,48 +206,61 @@ def test_rate_limit_429(client):
     assert client.get("/health").status_code == 429
 
 
-def test_snack_catalog_crud(client):
+def test_saving_catalog_crud(client):
     # §13.3b — full lifecycle: list (empty) → create → list → idempotent re-save → delete → list
-    r0 = client.get("/snacks")
+    r0 = client.get("/savings")
     assert r0.status_code == 200
-    assert r0.get_json() == {"snacks": []}
+    assert r0.get_json() == {"savings": []}
 
-    r1 = client.post("/snack", json={"name": "Oreos"}, headers=HDR)
+    r1 = client.post("/saving", json={"name": "Oreos"}, headers=HDR)
     assert r1.status_code == 201
     s = r1.get_json()
     assert s["created"] is True
-    assert s["snack"]["name"] == "Oreos"
+    assert s["saving"]["name"] == "Oreos"
+    # §13.3b — auto-grouped as "snacks" (matches _SNACKS_WORDS)
+    assert s["saving"]["group"] == "snacks"
 
-    r2 = client.get("/snacks")
+    r2 = client.get("/savings")
     assert r2.status_code == 200
-    snacks = r2.get_json()["snacks"]
-    assert len(snacks) == 1
-    snack_id = snacks[0]["id"]
+    savings = r2.get_json()["savings"]
+    assert len(savings) == 1
+    saving_id = savings[0]["id"]
 
-    # idempotent: re-adding the same snack name returns 200, created=false
-    r3 = client.post("/snack", json={"name": "oreos"}, headers=HDR)  # case-insensitive match
+    # idempotent: re-adding the same name returns 200, created=false
+    r3 = client.post("/saving", json={"name": "oreos"}, headers=HDR)  # case-insensitive match
     assert r3.status_code == 200
     assert r3.get_json()["created"] is False
 
     # delete
-    r4 = client.delete(f"/snack/{snack_id}", headers=HDR)
+    r4 = client.delete(f"/saving/{saving_id}", headers=HDR)
     assert r4.status_code == 200
 
     # deleting again -> 404
-    r5 = client.delete(f"/snack/{snack_id}", headers=HDR)
+    r5 = client.delete(f"/saving/{saving_id}", headers=HDR)
     assert r5.status_code == 404
 
     # empty again
-    assert client.get("/snacks").get_json() == {"snacks": []}
+    assert client.get("/savings").get_json() == {"savings": []}
 
 
-def test_snack_missing_name(client):
-    r = client.post("/snack", json={"name": ""}, headers=HDR)
+def test_saving_groups_snacks_vs_staples(client):
+    # §13.3b — snacks (oreos, cookies) auto-grouped vs staples (ketchup, milk)
+    oreos = client.post("/saving", json={"name": "Oreos"}, headers=HDR).get_json()["saving"]
+    ketchup = client.post("/saving", json={"name": "Ketchup"}, headers=HDR).get_json()["saving"]
+    milk = client.post("/saving", json={"name": "Milk"}, headers=HDR).get_json()["saving"]
+
+    assert oreos["group"] == "snacks"
+    assert ketchup["group"] == "staples"
+    assert milk["group"] == "staples"
+
+
+def test_saving_missing_name(client):
+    r = client.post("/saving", json={"name": ""}, headers=HDR)
     assert r.status_code == 400
 
 
-def test_promote_extra_to_snack(client):
-    # §13.3b — add an ad-hoc extra to the week, then promote it to the snack catalog
+def test_promote_extra_to_saving(client):
+    # §13.3b — add an ad-hoc extra to the week, then promote it to the saved grocery catalog
     for i in range(7):
         _add(client, f"Meal {i}", ["rice", "chicken"])
     client.get("/menu/week")
@@ -257,19 +270,19 @@ def test_promote_extra_to_snack(client):
     assert r1.get_json()["extras"] == ["pretzels"]
 
     # step 2: promote it — now it exists in the catalog
-    r2 = client.post("/snack", json={"name": "pretzels"}, headers=HDR)
+    r2 = client.post("/saving", json={"name": "pretzels"}, headers=HDR)
     assert r2.status_code == 201
-    snacks = client.get("/snacks").get_json()["snacks"]
-    assert any(s["name"] == "pretzels" for s in snacks)
+    savings = client.get("/savings").get_json()["savings"]
+    assert any(s["name"] == "pretzels" for s in savings)
 
     # step 3: the extra is still in the week's extras (no duplicate)
     extras = client.get("/grocery/extras").get_json()["extras"]
     assert "pretzels" in extras
 
 
-def test_snack_click_adds_to_extras(client):
-    # §13.3b — clicking a saved snack badge appends it to the current week's extras
-    client.post("/snack", json={"name": "Hummus"}, headers=HDR)
+def test_saving_click_adds_to_extras(client):
+    # §13.3b — clicking a saved grocery badge appends it to the current week's extras
+    client.post("/saving", json={"name": "Hummus"}, headers=HDR)
     for i in range(7):
         _add(client, f"Meal {i}", ["rice", "chicken"])
     client.get("/menu/week")

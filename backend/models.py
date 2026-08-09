@@ -12,20 +12,25 @@ from flask_sqlalchemy import SQLAlchemy
 db = SQLAlchemy()
 
 
-class Snack(db.Model):
-    """Reusable snack/catalog items (§13.3b).
+class SavedGrocery(db.Model):
+    """Persistent grocery catalog items (§13.3b → renamed from Snack → SavedGrocery).
 
-    Unlike weekly extras (free-text strings on ``WeeklyMenu.extras``), snacks are a
-    persistent catalog the user can pick from across weeks.  Any ad-hoc extra can be
-    promoted to a snack via a star icon in the frontend grocery view.
+    Unlike weekly extras (free-text strings on ``WeeklyMenu.extras``), saved groceries
+    are a persistent catalog the user can pick from across weeks.  Any ad-hoc extra can
+    be promoted to a saved grocery — snacks, staples, condiments, anything.
+
+    The ``group`` column distinguishes snacks from staples for UI grouping.
     """
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False, unique=True, index=True)
+    # §13.3b — group for UI sectioning: "snacks" (matches _SNACKS_WORDS aisle) vs
+    # "staples" (everything else). Defaults to "staples" for legacy entries.
+    group = db.Column(db.String(20), nullable=False, default="staples")
     created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp())
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"id": self.id, "name": self.name}
+        return {"id": self.id, "name": self.name, "group": self.group}
 
 
 class Meal(db.Model):
