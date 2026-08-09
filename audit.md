@@ -295,6 +295,13 @@ Uses `db.create_all()` which only creates tables if they don't exist. It doesn't
   `migrations/`. **Verified:** `flask db init/migrate/stamp/upgrade/current` all run;
   `upgrade()` against a fresh DB creates `meal`/`used_meal`/`weekly_menu` + `alembic_version`;
   real `dinner.db` stamped at head with the 3 sample meals (Sushi/Burger/Pizza) intact; test-client smoke green.
+- [x] **FIXED 2026-08-08** — In the frozen PyInstaller exe, `flask_migrate.upgrade()` and
+  `stamp()` call `sys.exit()` (raising `SystemExit`) when the migrations directory can't be
+  resolved from the bundle. `SystemExit` inherits from `BaseException`, so it was not caught
+  by `except Exception` and killed the exe at startup. Updated the fallback in `app.py` to
+  catch `(Exception, SystemExit)`, ensuring `db.create_all()` runs and the server starts.
+  Also added `--exclude-module` flags (torch, ultralytics, etc.) to the PyInstaller command
+  to prevent bundling 300+ MB of stray heavy packages.
 
 ### 4.9 OpenAI dependency included but unused (requirements.txt:24)
 
