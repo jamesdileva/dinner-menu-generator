@@ -68,7 +68,17 @@ def _ingest(data: Any) -> Tuple[int, int]:
         added += 1
 
     for menu in menus:
-        db.session.add(WeeklyMenu(meals=menu))
+        # §5.4 — backup.json exports menus as {"id": <int>, "meals": {day: ...}}.
+        # Extract the inner `meals` key so we don't nest the whole dict as the column value
+        # (which creates unreadable "empty" menus in the UI). If the entry is already a bare
+        # dict of day mappings (legacy format), store it as-is.
+        if isinstance(menu, dict) and "meals" in menu and "id" in menu:
+            stored = menu["meals"]
+        elif isinstance(menu, dict):
+            stored = menu
+        else:
+            continue
+        db.session.add(WeeklyMenu(meals=stored))
 
     db.session.commit()
     return added, len(menus)
