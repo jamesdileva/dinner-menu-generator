@@ -176,14 +176,19 @@ if __name__ == "__main__":
         # creates the tables; for an existing dinner.db that is already stamped it is a
         # no-op. The create_all() fallback (plus a best-effort `stamp head`) covers legacy
         # DBs that predate the migration bundle, so existing users never lose data.
+        #
+        # NOTE: flask_migrate/alembic raise SystemExit (not Exception) on some errors in
+        # a frozen PyInstaller bundle where the migrations directory is missing. SystemExit
+        # is a BaseException subclass — the bare `except Exception` won't catch it — so we
+        # catch (Exception, SystemExit) to keep the exe from dying on startup.
         try:
             upgrade()
-        except Exception as e:
+        except (Exception, SystemExit) as e:
             logger.warning("Alembic upgrade unavailable, falling back to db.create_all(): %s", e)
             db.create_all()
             try:
                 stamp("head")
-            except Exception:
+            except (Exception, SystemExit):
                 pass
 
     logger.info("Routes registered:")
