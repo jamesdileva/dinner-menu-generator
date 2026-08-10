@@ -2,7 +2,9 @@ import { useState, useEffect, useRef } from "react";
 import { apiFetch, MEALS_PER_PAGE } from "./api.js";
 import Menu from "./components/Menu.jsx";
 import GroceryList from "./components/GroceryList.jsx";
-import AddMeal from "./components/AddMeal.jsx";
+import ManageMeals from "./components/ManageMeals.jsx";
+import QuickPickBadge from "./components/QuickPickBadge.jsx";
+import Modal from "./components/Modal.jsx";
 import History from "./components/History.jsx";
 import Calendar from "./components/Calendar.jsx";
 import Insights from "./components/Insights.jsx";
@@ -26,34 +28,35 @@ export default function App() {
   const [name, setName] = useState("");
   const [ingredients, setIngredients] = useState("");
   const [grocery, setGrocery] = useState(null);
-  const [menuHistory, setMenuHistory] = useState(null); // §5.15
-  const [insights, setInsights] = useState(null); // audit B2
-  const [activeHistoryTab, setActiveHistoryTab] = useState("list"); // §13a.6
+  const [menuHistory, setMenuHistory] = useState(null);
+  const [insights, setInsights] = useState(null);
+  const [activeHistoryTab, setActiveHistoryTab] = useState("list");
 
   const [meals, setMeals] = useState([]);
   const [mealsPage, setMealsPage] = useState(1);
   const [mealsPages, setMealsPages] = useState(1);
   const [mealsTotal, setMealsTotal] = useState(0);
-  const [today, setToday] = useState(null);
-  const [takeout, setTakeout] = useState(null);
+  const [mealCategory, setMealCategory] = useState("");
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // §5.12: inline edit form (replaces prompt()) + undo toast for destructive actions
+  // §5.12 inline edit + undo
   const [editingMeal, setEditingMeal] = useState(null);
   const [editName, setEditName] = useState("");
   const [editIngredients, setEditIngredients] = useState("");
   const [editCategory, setEditCategory] = useState("");
-  const [undo, setUndo] = useState(null); // { message, action } | null
+  const [undo, setUndo] = useState(null);
   const undoTimer = useRef(null);
 
-  // §5.14: add-meal category + meals list category filter
-  const [category, setCategory] = useState("");
+  // §5.14 categories
   const [categories, setCategories] = useState([]);
-  const [mealCategory, setMealCategory] = useState("");
-  const [search, setSearch] = useState(""); // §5.18 meal name search
+  const [category, setCategory] = useState("");
 
-  // 4.2 centralised loading + error handling for async actions
+  // §13.21 header badges
+  const [addMealModalOpen, setAddMealModalOpen] = useState(false);
+  const [quickPickResult, setQuickPickResult] = useState(null);
+
   async function withLoading(fn) {
     setError(null);
     setLoading(true);
@@ -66,7 +69,6 @@ export default function App() {
     }
   }
 
-  // §5.12: time-limited Undo toast; clears any previous timer automatically
   function showUndo(message, action) {
     if (undoTimer.current) clearTimeout(undoTimer.current);
     setUndo({ message, action });
@@ -94,17 +96,19 @@ export default function App() {
   }, []);
 
   const getTodayMeal = () => withLoading(async () => {
-    setToday(await apiFetch("/menu/today"));
+    const data = await apiFetch("/menu/today");
+    setQuickPickResult({ mode: "home", meal: data });
   });
 
   const getTakeout = () => withLoading(async () => {
-    setTakeout(await apiFetch("/menu/takeout"));
+    const data = await apiFetch("/menu/takeout");
+    setQuickPickResult({ mode: "takeout", meal: data });
   });
 
   const loadMenu = () => withLoading(async () => {
     const data = await apiFetch("/menu/week");
     setMenu(data);
-    setGrocery(null); // reset grocery
+    setGrocery(null);
   });
 
   const loadGrocery = () => withLoading(async () => {
@@ -119,8 +123,30 @@ export default function App() {
     setInsights(await apiFetch("/insights"));
   });
 
+  // §13.23: load saved groceries for the tabs
+  const loadSavings = () =>
+    apiFetch("/savings").then((r) => setSavings(r.savings || [])).catch(() => {});
+  const [savings, setSavings] = useState([]);
+
+  useEffect(() => {
+    loadSavings();
+  }, []);
+
+  const addFromSavings = (itemName) => {
+    apiFetch("/saving", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: itemName }),
+    }).catch(() => {});
+  };
+
+  const deleteSaving = (id) => {
+    apiFetch(`/saving/${id}`, { method: "DELETE" })
+      .then(() => loadSavings())
+      .catch(() => {});
+  };
+
   const rerollDay = async (day) => {
-    // §5.12: capture prior meal so Undo can restore it via PUT /menu/<day>
     const prevMeal = menu?.[day] ?? null;
     setError(null);
     setLoading(true);
@@ -147,11 +173,17 @@ export default function App() {
     }
   };
 
-  const loadMeals = (page = 1) =>
+  const loadMeals = (page = 1, categoryFilter = null, searchQuery = null) =>
     withLoading(async () => {
       let url = `/meals?page=${page}&limit=${MEALS_PER_PAGE}`;
-      if (mealCategory) url += `&category=${encodeURIComponent(mealCategory)}`; // §5.14
-      if (search) url += `&search=${encodeURIComponent(search)}`; // §5.18
+      if (categoryFilter !== null) setMealCategory(categoryFilter);
+      if (searchQuery !== null) setSearch(searchQuery);
+      if (categoryFilter !== null && categoryFilter !== "") {
+        url += `&category=${encodeURIComponent(categoryFilter)}`;
+      }
+      if (searchQuery !== null && searchQuery !== "") {
+        url += `&search=${encodeURIComponent(searchQuery)}`;
+      }
       const data = await apiFetch(url);
       setMeals(data.meals);
       setMealsPage(data.page);
@@ -192,11 +224,11 @@ export default function App() {
             .split(",")
             .map((i) => i.trim())
             .filter(Boolean),
-          category: editCategory || undefined, // §5.14
+          category: editCategory || undefined,
         }),
       });
       cancelEdit();
-      loadMeals(mealsPage);
+      loadMeals(mealsPage, mealCategory, search);
     });
 
   const uploadImage = (e) => {
@@ -212,14 +244,14 @@ export default function App() {
       alert(
         `Added: ${data.added.length}\nUpdated: ${data.updated.length}\nSkipped: ${data.skipped.length}`
       );
-      loadMeals(1);
+      loadMeals(1, mealCategory, search);
+      if (addMealModalOpen) setAddMealModalOpen(false);
     });
   };
 
   const deleteMeal = (meal) =>
     withLoading(async () => {
       await apiFetch(`/meal/${meal.id}`, { method: "DELETE" });
-      // §5.12: offer Undo; recreating needs the original meal object
       showUndo(`Deleted "${meal.name}"; undo?`, () =>
         apiFetch("/meal", {
           method: "POST",
@@ -230,10 +262,10 @@ export default function App() {
             ingredients: meal.ingredients,
           }),
         })
-          .then(() => loadMeals(mealsPage))
+          .then(() => loadMeals(mealsPage, mealCategory, search))
           .catch(() => {})
       );
-      loadMeals(mealsPage);
+      loadMeals(mealsPage, mealCategory, search);
     });
 
   const addMeal = () =>
@@ -247,16 +279,17 @@ export default function App() {
             .split(",")
             .map((i) => i.trim())
             .filter(Boolean),
-          category: category || undefined, // §5.14
+          category: category || undefined,
         }),
       });
       setName("");
       setIngredients("");
       setCategory("");
-      loadMeals(1);
+      setAddMealModalOpen(false);
+      loadMeals(1, mealCategory, search);
     });
 
-  // §6.14: Escape cancels any active edit, or dismisses the undo toast.
+  // §6.14 Escape cancels edit or modal, dismisses undo
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape") {
@@ -264,23 +297,44 @@ export default function App() {
           cancelEdit();
         } else if (undo) {
           dismissUndo();
+        } else if (addMealModalOpen) {
+          setAddMealModalOpen(false);
         }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [editingMeal, undo]);
+  }, [editingMeal, undo, addMealModalOpen]);
 
   useEffect(() => {
     loadMeals();
-    loadCategories(); // §5.14
+    loadCategories();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const onCategoryFilter = (e) => loadMeals(1, e.target.value, search);
+  const onSearch = (e) => loadMeals(1, mealCategory, e.target.value);
+
   return (
     <div className="app-shell">
+      {/* Header with badge buttons */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-        <h1 style={{ margin: 0 }}>Dinner Planner</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <h1 style={{ margin: 0 }}>Dinner Planner</h1>
+          <button
+            className="btn-sm"
+            style={{ padding: "4px 10px", fontSize: "13px" }}
+            onClick={() => setAddMealModalOpen(true)}
+            title="Add a new meal"
+          >
+            ＋ Add Meal
+          </button>
+          <QuickPickBadge
+            onPickHome={getTodayMeal}
+            onPickTakeout={getTakeout}
+            result={quickPickResult}
+          />
+        </div>
         <button
           className="btn-sm"
           style={{ padding: "4px 10px", fontSize: "13px" }}
@@ -295,7 +349,7 @@ export default function App() {
         <div className="error-banner">
           <span>{error}</span>
           <button className="btn-sm" onClick={() => setError(null)}>
-            ✕
+            ×
           </button>
         </div>
       )}
@@ -313,221 +367,123 @@ export default function App() {
             Undo
           </button>
           <button className="btn-sm" style={{ marginLeft: "6px" }} onClick={dismissUndo}>
-            ✕
+            ×
           </button>
         </div>
       )}
 
-      {/* WEEKLY MENU + GROCERY LIST (side-by-side on desktop, stacked on mobile) */}
+      {/* All Meals card (with Meals/Snacks/Staples tabs) */}
+      <ManageMeals
+        meals={meals}
+        mealsPage={mealsPage}
+        mealsPages={mealsPages}
+        mealsTotal={mealsTotal}
+        categories={categories}
+        editingMeal={editingMeal}
+        editName={editName}
+        editIngredients={editIngredients}
+        editCategory={editCategory}
+        onEditNameChange={(e) => setEditName(e.target.value)}
+        onEditIngredientsChange={(e) => setEditIngredients(e.target.value)}
+        onEditCategoryChange={(e) => setEditCategory(e.target.value)}
+        onEditMeal={editMeal}
+        onCancelEdit={cancelEdit}
+        onSaveEdit={saveEdit}
+        onDeleteMeal={deleteMeal}
+        onPageChange={loadMeals}
+        onCategoryFilter={onCategoryFilter}
+        onSearch={onSearch}
+        savings={savings}
+        onAddFromSavings={addFromSavings}
+        onDeleteSaving={deleteSaving}
+      />
+
+      {/* Weekly Menu + Grocery List (side-by-side on desktop, stacked on mobile) */}
       <div className="main-grid">
         <Menu menu={menu} onGenerate={loadMenu} onReroll={rerollDay} />
         <GroceryList grocery={grocery} onGenerate={loadGrocery} />
       </div>
 
-      {/* QUICK PICK */}
-      <div className="card">
-        <h2>Quick Pick</h2>
-        <div className="row-wrap" style={{ gap: "10px", marginBottom: "10px" }}>
-          <button className="btn" onClick={getTodayMeal}>
-            Home
-          </button>
-          <button className="btn" onClick={getTakeout}>
-            Takeout
-          </button>
+      {/* Past Menus + Insights (secondary, side-by-side on desktop) */}
+      <div className="secondary-grid">
+        {/* Past Menus */}
+        <div className="card">
+          <h2>Past Menus</h2>
+          <div className="row-gap" style={{ marginBottom: "10px" }}>
+            <button
+              className="btn-sm"
+              style={{
+                background: activeHistoryTab === "list" ? "var(--accent)" : "var(--bg-panel)",
+                color: activeHistoryTab === "list" ? "#fff" : "var(--text-muted)",
+              }}
+              onClick={() => setActiveHistoryTab("list")}
+            >
+              List
+            </button>
+            <button
+              className="btn-sm"
+              style={{
+                background: activeHistoryTab === "calendar" ? "var(--accent)" : "var(--bg-panel)",
+                color: activeHistoryTab === "calendar" ? "#fff" : "var(--text-muted)",
+              }}
+              onClick={() => setActiveHistoryTab("calendar")}
+            >
+              Calendar
+            </button>
+          </div>
+
+          {activeHistoryTab === "list" && (
+            <History history={menuHistory} onGenerate={loadHistory} />
+          )}
+          {activeHistoryTab === "calendar" && (
+            <Calendar menus={menuHistory} onGenerate={loadHistory} />
+          )}
+
+          {menuHistory === null && (
+            <button className="btn" onClick={loadHistory}>
+              Load History
+            </button>
+          )}
         </div>
 
-        {today && (
-          <div className="result-box">
-            <strong>At Home:</strong>
-            <h3 style={{ margin: "4px 0 0" }}>{today.name}</h3>
-          </div>
-        )}
-
-        {takeout && (
-          <div className="result-box">
-            <strong>Takeout:</strong>
-            <h3 style={{ margin: "4px 0 0" }}>{takeout.name}</h3>
-            <p style={{ opacity: 0.7 }}>{takeout.type}</p>
-          </div>
-        )}
+        {/* Insights */}
+        <Insights data={insights} onGenerate={loadInsights} />
       </div>
 
-      {/* PAST MENUS (history / calendar tabs) — §13a.6 */}
-      <div className="card">
-        <h2>Past Menus</h2>
-        <div className="row-gap" style={{ marginBottom: "10px" }}>
-          <button
-            className="btn-sm"
-            style={{
-              background: activeHistoryTab === "list" ? "var(--accent)" : "var(--bg-panel)",
-              color: activeHistoryTab === "list" ? "#fff" : "var(--text-muted)",
-            }}
-            onClick={() => setActiveHistoryTab("list")}
-          >
-            List
-          </button>
-          <button
-            className="btn-sm"
-            style={{
-              background: activeHistoryTab === "calendar" ? "var(--accent)" : "var(--bg-panel)",
-              color: activeHistoryTab === "calendar" ? "#fff" : "var(--text-muted)",
-            }}
-            onClick={() => setActiveHistoryTab("calendar")}
-          >
-            Calendar
-          </button>
-        </div>
-
-        {activeHistoryTab === "list" && (
-          <History history={menuHistory} onGenerate={loadHistory} />
-        )}
-        {activeHistoryTab === "calendar" && (
-          <Calendar menus={menuHistory} onGenerate={loadHistory} />
-        )}
-
-        {menuHistory === null && (
-          <button className="btn" onClick={loadHistory}>
-            Load History
-          </button>
-        )}
-      </div>
-
-      {/* INSIGHTS (audit B2): macro overview + deficiency flags + swap suggestions */}
-      <Insights data={insights} onGenerate={loadInsights} />
-
-      {/* ADD MEAL */}
-      <AddMeal
-        name={name}
-        ingredients={ingredients}
-        category={category}
-        categories={categories}
-        onNameChange={(e) => setName(e.target.value)}
-        onIngredientsChange={(e) => setIngredients(e.target.value)}
-        onCategoryChange={(e) => setCategory(e.target.value)}
-        onAdd={addMeal}
-        onUpload={uploadImage}
-      />
-
-      {/* ALL MEALS (paginated) */}
-      <div className="card">
-        <h2>All Meals</h2>
-        <div className="row-gap" style={{ marginBottom: "10px" }}>
-          <span>Category:</span>
-          <select
-            className="input-field-sm"
-            value={mealCategory}
-            onChange={(e) => {
-              setMealCategory(e.target.value);
-              loadMeals(1);
-            }}
-          >
-            <option value="">All</option>
-            {categories.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
-
+      {/* Add Meal Modal (§13.21) */}
+      <Modal
+        title="Add Meal"
+        open={addMealModalOpen}
+        onClose={() => setAddMealModalOpen(false)}
+      >
         <input
           className="input-field"
-          placeholder="Search meals…"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            loadMeals(1);
-          }}
+          placeholder="Meal name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && addMeal()}
+          autoFocus
         />
-
-        <ul style={{ listStyle: "none", padding: 0 }}>
-          {meals.map((meal) => (
-            <li key={meal.id} className="list-item">
-              {editingMeal?.id === meal.id ? (
-                <div style={{ display: "block", width: "100%" }}>
-                   <input
-                     className="input-field"
-                     value={editName}
-                     onChange={(e) => setEditName(e.target.value)}
-                     onKeyDown={(e) => e.key === "Enter" && saveEdit(meal)}
-                     placeholder="Meal name"
-                   />
-                   <input
-                     className="input-field"
-                     value={editIngredients}
-                     onChange={(e) => setEditIngredients(e.target.value)}
-                     onKeyDown={(e) => e.key === "Enter" && saveEdit(meal)}
-                     placeholder="Ingredients (comma separated)"
-                   />
-                   <select
-                     className="input-field"
-                     style={{ marginBottom: "8px" }}
-                     value={editCategory}
-                     onChange={(e) => setEditCategory(e.target.value)}
-                   >
-                     <option value="">(no category)</option>
-                     {categories.map((c) => (
-                       <option key={c} value={c}>
-                         {c}
-                       </option>
-                     ))}
-                   </select>
-                   <div className="row-gap" style={{ gap: "8px" }}>
-                     <button className="btn-sm" onClick={() => saveEdit(meal)}>
-                       Save
-                     </button>
-                     <button className="btn-sm" onClick={cancelEdit}>
-                       Cancel
-                     </button>
-                   </div>
-                 </div>
-              ) : (
-                <>
-                  <span>
-                    {meal.name}
-                    {meal.category ? (
-                      <span className="category-chip">{meal.category}</span>
-                    ) : null}
-                  </span>
-                  <div>
-                    <button className="btn-sm" onClick={() => editMeal(meal)}>
-                      Edit
-                    </button>
-                    <button className="btn-sm" onClick={() => deleteMeal(meal)}>
-                      Delete
-                    </button>
-                  </div>
-                </>
-              )}
-            </li>
+        <select className="input-field" value={category || ""} onChange={(e) => setCategory(e.target.value)}>
+          <option value="">(no category)</option>
+          {categories.map((c) => (
+            <option key={c} value={c}>{c}</option>
           ))}
-        </ul>
-
-        <div
-          className="row-between"
-          style={{ marginTop: "10px", fontSize: "13px", color: "var(--text-muted)" }}
-        >
-          <span>
-            Page {mealsPage}/{mealsPages} ({mealsTotal} meals)
-          </span>
-          <div className="row-gap" style={{ gap: "6px" }}>
-            <button
-              className="btn-sm"
-              onClick={() => loadMeals(mealsPage - 1)}
-              disabled={mealsPage <= 1}
-            >
-              Prev
-            </button>
-            <button
-              className="btn-sm"
-              onClick={() => loadMeals(mealsPage + 1)}
-              disabled={mealsPage >= mealsPages}
-            >
-              Next
-            </button>
-          </div>
+        </select>
+        <input
+          className="input-field"
+          placeholder="Ingredients (comma separated)"
+          value={ingredients}
+          onChange={(e) => setIngredients(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && addMeal()}
+        />
+        <div className="row-gap" style={{ gap: "10px" }}>
+          <button className="btn" onClick={addMeal}>
+            Add Meal
+          </button>
+          <input type="file" onChange={uploadImage} />
         </div>
-      </div>
+      </Modal>
     </div>
   );
 }

@@ -1423,8 +1423,68 @@ Use AI (OpenAI API) to suggest meals based on ingredients on hand, dietary prefe
 
 **Implementation:** Integrate with OpenAI API, add a "Suggest Meals" button.
 
+### 13.21 UI Layout Restructure (Header Badges + Two-Column Grids)
+
+**Value:** Medium | **Effort:** Medium
+
+The current layout stacks all cards vertically in a single narrow centered column. The §13a
+refresh (audit 13a) made mobile-responsive fixes but did not address the desktop layout.
+
+**Implementation:**
+- Move **Quick Pick** and **Add Meal** from full-width cards to compact **header badge buttons**
+  next to the dark/light theme toggle — keeping the main area clean.
+- Add Meal opens a **modal form** (existing form fields: name, ingredients, category, file upload)
+  so users can add meals without scrolling past the grocery list.
+- Reorganize the main content into **two 2-column grids** on desktop (≥ 1024px):
+  1. `Weekly Menu` + `Grocery List` (primary workflow)
+  2. `Past Menus` + `Insights` (secondary/reference)
+- All Meals becomes a **tabbed card** (Meals / Snacks / Staples) so saved groceries are visible
+  without needing to generate a grocery list first.
+
 ---
 
+### 13.22 Auto-Import Sample Data on First Launch
+
+**Value:** Medium | **Effort:** Low
+
+**Problem:** The packaged exe starts with an empty database on every fresh launch. Users see no
+meals until they manually call `/import-file?path=backup.json`.
+
+**Implementation:** In `app.py` startup (after migrations complete), check `Meal.query.count()`.
+If 0, auto-import from the bundled `backup.json` (29 sample meals + 119 sample menus). This
+only triggers on a truly empty database — existing data is never touched. Uses the existing
+`_ingest` function from `routes/data.py`.
+
+---
+
+### 13.23 Saved Groceries as Tabs in All Meals Card
+
+**Value:** Medium | **Effort:** Low
+
+**Problem:** Saved groceries (snacks/staples) are only visible inside the Grocery List card
+after a menu is generated. New users can't browse or manage them independently.
+
+**Implementation:** Add a **tab bar** at the top of the "All Meals" card:
+- `Meals` tab (default): shows the paginated meal list (existing behavior)
+- `Snacks` tab: shows saved groceries where `group == 'snacks'` (oreos, chips, cookies)
+- `Staples` tab: shows saved groceries where `group == 'staples'` (flour, ketchup, salt)
+
+Each tab uses the same list-item component with inline Edit/Delete. This reuses the existing
+meal-list UI pattern — no new card component needed, just a data source switch.
+
+---
+
+### 13.24 Scrollable Menu History
+
+**Value:** Low | **Effort:** Tiny
+
+**Problem:** Past Menus (History) renders all 119 saved menus in an unbounded vertical list,
+creating excessive scroll.
+
+**Implementation:** Add `max-height` + `overflow-y: auto` to the History component's container.
+Same treatment for the Calendar grid. No backend changes needed.
+
+---
 ## 16. Deferred Bonus Features (Ollama Integration)
 
 > **Rationale (from user conversation, post-Phase D):** The following features were discussed as

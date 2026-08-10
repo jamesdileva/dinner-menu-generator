@@ -243,9 +243,19 @@ menus generated after the edit, including the grocery list built from the latest
 > view), §8.5 (`.env` template cleanup), §8.7 (generic 500 handlers, no exception leak),
 > §9.1 (Meal/UsedMeal indexes), §7.2 (current_week removed — gone from `backend/`), §7.3 (unused imports: `shutil` removed, stale monolith refs gone with §4.1), §9.6 (random.sample → DB-level `ORDER BY RANDOM() LIMIT 7` with a single COUNT guard), §11.1–§11.2 (pytest harness + backend tests), §6.1 (backend comment emoji stripped), §6.3 (`.editorconfig`), §6.8 (favicon linked), §6.9 (dead `App.css` removed; `index.css` kept as active theme), §11.3 (GitHub Actions CI), §13.17 (read-only calendar view), §13.18 (presence-based nutrition insight, local-only). Fixed as of
 > 2026-08-05.
-> Remaining:
 >
+> **Additional fixes through 2026-08-09:** §6.10 (Error Boundary component), §6.14 (keyboard
+> shortcuts: Escape/Cancel, Enter/Submit, Space/checkboxes), §13.3 grocery checkoff +
+> §13.3b saved grocery palette (renamed Snack→SavedGrocery with group column),
+> §13.4 meal search (already §5.18), §13.13 dark mode toggle (§13a.3), §13.14 mobile-
+> responsive CSS breakpoints, §13a UI polish (CSS class extraction, shared component
+> classes, .editorconfig, black/isort/flake8 configs), App.spec PyInstaller excludes
+> persisted, Alembic SystemExit catch in frozen exe.
+>
+> **Remaining:**
 > - (see `audit.md` §6–§11 for the low-priority polish / dead-code / perf / tooling backlog)
+> - §13.21 UI Layout Restructure (header badges + two-column grids) — in progress
+> - §13.22 Auto-Import sample data on first launch — planned
 
 ## Maintenance CLI Commands (audit §5.5 / §5.6 / §8.1)
 

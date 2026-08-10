@@ -198,6 +198,13 @@ code {
   gap: 20px;
 }
 
+/* Secondary 2-column grid for Past Menus + Insights */
+.secondary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
 /* Keep full-width cards below the grid */
 .full-width {
   grid-column: 1 / -1;
@@ -398,9 +405,62 @@ h2 {
   padding: 8px;
   margin-top: 12px;
 }
+
+/* §13.24 — scroll long menu history */
+.history-scroll {
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 .history-panel strong,
 .calendar-panel strong {
   opacity: 0.8;
+}
+
+/* ============= Modal (§13.21) ============= */
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+.modal-content {
+  background: var(--bg-card);
+  border-radius: 10px;
+  padding: 20px;
+  max-width: 480px;
+  width: 90%;
+  max-height: 80vh;
+  overflow: auto;
+  box-shadow: var(--shadow);
+}
+
+.modal-content h2 {
+  font-size: 20px;
+  margin: 0 0 12px;
+}
+
+/* §13.21 — Quick Pick popup */
+.quick-pick-popup {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 1000;
+  min-width: 200px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  box-shadow: var(--shadow);
+  margin-top: 6px;
 }
 
 /* ============= Mobile / responsive breakpoints (§13.14) ============= */
@@ -421,8 +481,9 @@ h2 {
     padding: 20px;
     max-width: 100%;
   }
-  /* Stack the 2-column grid on tablet */
-  .main-grid {
+  /* Stack the 2-column grids on tablet */
+  .main-grid,
+  .secondary-grid {
     grid-template-columns: 1fr;
   }
   .card {

@@ -24,7 +24,7 @@ export default function History({ history }) {
   }
 
   return (
-    <div>
+    <div className="history-scroll">
       {history.map((menu) => (
         <div
           key={menu.id}
