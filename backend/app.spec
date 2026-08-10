@@ -5,7 +5,7 @@ a = Analysis(
     ['app.py'],
     pathex=[],
     binaries=[],
-    datas=[('../frontend/dist', 'frontend/dist'), ('migrations', 'migrations'), ('ingredient_rules.json', '.'), ('meal_name_fixes.json', '.'), ('nutrition_rules.json', '.')],
+    datas=[('../frontend/dist', 'frontend/dist'), ('migrations', 'migrations'), ('ingredient_rules.json', '.'), ('meal_name_fixes.json', '.'), ('nutrition_rules.json', '.'), ('backup.json', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

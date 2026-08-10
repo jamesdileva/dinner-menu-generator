@@ -14,6 +14,7 @@ and serve the bundled frontend. All real logic lives in:
 
 import os
 import sys
+import json
 import signal
 import logging
 import threading
@@ -62,7 +63,8 @@ from limiter import limiter  # noqa: E402 — rate limiting (audit §5.21 / §8.
 from routes.meals import meals_bp  # noqa: E402
 from routes.menu import menu_bp  # noqa: E402
 from routes.grocery import grocery_bp  # noqa: E402
-from routes.data import data_bp  # noqa: E402
+from routes.data import data_bp, _ingest  # noqa: E402
+from models import Meal  # noqa: E402 — for §13.22 auto-import check
 from cli import register_cli  # noqa: E402
 
 
@@ -94,6 +96,15 @@ else:
 Migrate(app, db, directory=_MIGRATIONS_DIR)  # audit §4.8 — Alembic migrations
 
 limiter.init_app(app)  # audit §5.21 / §8.4 — apply default rate limits to all routes
+
+# --- Sample-data auto-import (§13.22) -------------------------------------
+# On first launch (empty DB), auto-import the bundled sample meals + menus so the
+# packaged exe always starts with data. Dev checkout uses backend/backup.json;
+# the frozen exe reads from the PyInstaller _MEIPASS bundle.
+if hasattr(sys, "_MEIPASS"):
+    _BACKUP_JSON = os.path.join(sys._MEIPASS, "backup.json")
+else:
+    _BACKUP_JSON = os.path.abspath(os.path.join(os.path.dirname(__file__), "backup.json"))
 
 
 # --- Health check (audit §4.4) -------------------------------------------
@@ -169,6 +180,29 @@ def open_browser():
     webbrowser.open("http://127.0.0.1:5000")
 
 
+def _auto_import_sample_data():
+    """§13.22 — on first launch (empty DB), import the bundled sample meals + menus.
+
+    This runs after migrations have created the tables. Only triggers when there are
+    zero meals in the DB, so it is a no-op for existing installations. Uses the same
+    idempotent `_ingest` logic as /import-file, so re-runs are safe.
+    """
+    if Meal.query.count() > 0:
+        return
+
+    if not os.path.isfile(_BACKUP_JSON):
+        logger.info("No backup.json found at %s — skipping auto-import.", _BACKUP_JSON)
+        return
+
+    try:
+        with open(_BACKUP_JSON, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        added, menus = _ingest(data)
+        logger.info("Auto-imported sample data: %d meals, %d menus", added, menus)
+    except Exception as e:
+        logger.warning("Auto-import of sample data failed: %s", e)
+
+
 if __name__ == "__main__":
     _register_signal_handlers()  # audit §5.20 — graceful SIGINT/SIGTERM handling
     with app.app_context():
@@ -190,6 +224,9 @@ if __name__ == "__main__":
                 stamp("head")
             except (Exception, SystemExit):
                 pass
+
+        # §13.22 — auto-import sample data on first launch (empty DB only)
+        _auto_import_sample_data()
 
     logger.info("Routes registered:")
     for rule in app.url_map.iter_rules():

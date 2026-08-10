@@ -127,20 +127,22 @@ cd ../backend
 python -m PyInstaller --noconfirm --onefile --windowed \
   --add-data "../frontend/dist;frontend/dist" \
   --add-data "migrations;migrations" \
-  --add-data "ingredient_rules.json;." \
-    --add-data "meal_name_fixes.json;." \
-    --add-data "nutrition_rules.json;." \
-    --exclude-module torch --exclude-module torchvision --exclude-module torchaudio \
-    --exclude-module ultralytics --exclude-module xformers --exclude-module accelerate \
-    --exclude-module kokoro --exclude-module optimum \
-    app.py
+     --add-data "ingredient_rules.json;." \
+     --add-data "meal_name_fixes.json;." \
+     --add-data "nutrition_rules.json;." \
+     --add-data "backup.json;." \
+     --exclude-module torch --exclude-module torchvision --exclude-module torchaudio \
+     --exclude-module ultralytics --exclude-module xformers --exclude-module accelerate \
+     --exclude-module kokoro --exclude-module optimum \
+     app.py
 ```
-The `--add-data` JSON lines bundle the config-driven ingredient rules (§5.9) and the
-meal-name typo map (§5.19) into the frozen `_MEIPASS` directory so OCR import + name
-cleaning keep working in the packaged exe. The `--exclude-module` flags prevent
-PyInstaller from bundling stray heavy packages (torch, ultralytics, etc.) that may be
-present in the global site-packages but are not project dependencies — without these
-the build can take 10+ minutes and produce a 300+ MB binary.
+The `--add-data` JSON lines bundle the config-driven ingredient rules (§5.9), the
+meal-name typo map (§5.19), and `backup.json` (§13.22 auto-import) into the frozen
+`_MEIPASS` directory so OCR import + name cleaning + sample data all work in the
+packaged exe. The `--exclude-module` flags prevent PyInstaller from bundling stray
+heavy packages (torch, ultralytics, etc.) that may be present in the global
+site-packages but are not project dependencies — without these the build can take
+10+ minutes and produce a 300+ MB binary.
 
 ### Typecheck / Backend Lint
 - No backend linter is configured. `.env` is now loaded in `app.py` via `python-dotenv`
@@ -171,9 +173,10 @@ the build can take 10+ minutes and produce a 300+ MB binary.
 | GET    | `/grocery/purchased`   | List checked-off grocery items (§13.3)                    |
 | PUT    | `/grocery/purchased`   | Replace the checked-off items list (§13.3)                |
 | POST   | `/grocery/purchased/:item` | Toggle a single item's checked-off state (§13.3)      |
-| GET    | `/snacks`              | List all saved snacks (§13.3b catalog)                    |
-| POST   | `/snack`               | Add a snack to the catalog (idempotent) (§13.3b)          |
-| DEL    | `/snack/:id`           | Delete a snack from the catalog (§13.3b)                  |
+| GET    | `/snacks`              | Alias for `/savings` (backward compat, §13.3b)                  |
+| POST   | `/savings`              | Add a saved grocery (auto-groups as snacks/staples, §13.23)      |
+| GET    | `/savings`              | List all saved groceries with group (snacks/staples) (§13.23)    |
+| DEL    | `/saving/:id`           | Delete a saved grocery from the catalog (§13.3b)                  |
 | GET    | `/insights`         | Macro overview + deficiency flags + swap tips over last menus (B2) |
 | GET    | `/export`           | Export all meals and menus as JSON                  |
 | POST   | `/import`           | Import meals and menus from JSON body               |
@@ -184,7 +187,7 @@ the build can take 10+ minutes and produce a 300+ MB binary.
 SQLite database (`dinner.db`, stored in `backend/instance/`). Four tables:
 
 - **Meal** — `id` (int, PK), `name` (string), `ingredients` (JSON list), `category` (string, opt)
-- **Snack** — `id` (int, PK), `name` (string, unique), `created_at` (datetime) — §13.3b reusable snack/staple catalog
+- **SavedGrocery** — `id` (int, PK), `name` (string, unique), `group` (string: "snacks"|"staples", auto-assigned), `created_at` (datetime) — §13.3b reusable grocery catalog; backward-compatible `/snack` alias still works
 - **WeeklyMenu** — `id` (int, PK), `meals` (JSON, keyed by day name: Mon–Sun), `extras` (JSON list of user-added grocery items, opt), `purchased` (JSON list of checked-off items, opt)
 - **UsedMeal** — `id` (int, PK), `date` (string YYYY-MM-DD), `meal_id` (int)
   (tracks which meals were picked today for the `/menu/today` no-repeat rule)
@@ -215,7 +218,7 @@ menus generated after the edit, including the grocery list built from the latest
 
 ### Frontend (`App.jsx`)
 - `App.jsx` is now a state/layout orchestrator; view logic lives in
-  `components/{Menu,GroceryList,AddMeal}.jsx` and shared HTTP in `api.js`.
+  `components/{Menu,GroceryList,ManageMeals,Modal,QuickPickBadge}.jsx` and shared HTTP in `api.js`.
 - Inline styles only — no CSS modules or external stylesheets in use.
 - API calls go through `apiFetch` (`src/api.js`) which targets the backend on
   `http://localhost:5000` (hardcoded) — keep that pattern. `apiFetch` includes error
@@ -252,10 +255,11 @@ menus generated after the edit, including the grocery list built from the latest
 > classes, .editorconfig, black/isort/flake8 configs), App.spec PyInstaller excludes
 > persisted, Alembic SystemExit catch in frozen exe.
 >
+> **Phase D completed through 2026-08-10:** §13.21 (UI layout restructure), §13.22 (auto-import),
+> §13.23 (saved groceries tabs), §13.24 (scrollable history), §16 (deferred Ollama features documented).
+>
 > **Remaining:**
 > - (see `audit.md` §6–§11 for the low-priority polish / dead-code / perf / tooling backlog)
-> - §13.21 UI Layout Restructure (header badges + two-column grids) — in progress
-> - §13.22 Auto-Import sample data on first launch — planned
 
 ## Maintenance CLI Commands (audit §5.5 / §5.6 / §8.1)
 

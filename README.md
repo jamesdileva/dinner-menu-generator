@@ -63,16 +63,19 @@ backend/
 frontend/
 ├── src/
 │   ├── api.js          # Shared apiFetch + CSRF header + MEALS_PER_PAGE
-│   ├── App.jsx         # State + layout orchestrator
+│   ├── App.jsx         # State + layout orchestrator (header badges + 2-col grids)
 │   ├── main.jsx        # Entry: applies data-theme, renders App
 │   ├── index.css       # Light/dark theme vars + shared component classes
 │   └── components/
-│       ├── Menu.jsx        # Weekly menu card + reroll + email
-│       ├── GroceryList.jsx # Grocery list card + export/email/extras
-│       ├── AddMeal.jsx     # Add meal form + OCR upload
-│       ├── History.jsx     # Menu history list view
-│       ├── Calendar.jsx    # Menu history calendar view
-│       └── Insights.jsx    # Nutrition insights card
+│       ├── Menu.jsx            # Weekly menu card + reroll + email
+│       ├── GroceryList.jsx     # Grocery list card + export/email/extras/checkoff
+│       ├── ManageMeals.jsx     # All Meals list with Meals/Snacks/Staples tabs
+│       ├── Modal.jsx           # Reusable modal overlay (AddMeal form)
+│       ├── QuickPickBadge.jsx  # Header badge: Home/Takeout quick pick
+│       ├── History.jsx         # Menu history list view (scrollable)
+│       ├── Calendar.jsx        # Menu history calendar view
+│       ├── Insights.jsx        # Nutrition insights card
+│       └── ErrorBoundary.jsx   # React error boundary (§6.10)
 ├── index.html
 ├── package.json
 ├── vite.config.js
