@@ -129,9 +129,15 @@ export default function GroceryList({ grocery, onGenerate }) {
       .join("\n\n");
   };
 
-  // §13.3b — split saved groceries into snacks and staples
   const snacks = savings.filter((s) => s.group === "snacks");
   const staples = savings.filter((s) => s.group === "staples");
+
+  // §13.23 — track which saved-grocery sections are expanded in the grocery list
+  const [expandedSections, setExpandedSections] = useState({ snacks: true, staples: true });
+
+  const toggleSection = (section) => {
+    setExpandedSections((p) => ({ ...p, [section]: !p[section] }));
+  };
 
   return (
     <div className="card">
@@ -142,74 +148,80 @@ export default function GroceryList({ grocery, onGenerate }) {
 
       {grocery && (
         <>
-          {/* §13.3b — saved grocery palette: snacks + staples */}
+          {/* §13.23 — collapsible saved groceries at the top of the grocery list */}
           {savings.length > 0 && (
             <div style={{ marginTop: "15px" }}>
               {[
-                { label: "Snacks", items: snacks },
-                { label: "Staples", items: staples },
-              ].map(({ label, items }) =>
+                { key: "snacks", label: "Snacks", items: snacks },
+                { key: "staples", label: "Staples", items: staples },
+              ].map(({ key, label, items }) =>
                 items.length > 0 ? (
-                  <div key={label} style={{ marginTop: "12px" }}>
-                    <div style={{ marginBottom: "6px", fontSize: "12px", color: "var(--text-muted)" }}>
-                      Saved {label.toLowerCase()} (click to add to this week)
-                    </div>
+                  <div key={key} style={{ marginTop: "12px" }}>
                     <div
-                      className="row-gap"
-                      style={{ gap: "6px", flexWrap: "wrap", alignItems: "center" }}
+                      className="row-between"
+                      style={{ cursor: "pointer", marginBottom: "6px" }}
+                      onClick={() => toggleSection(key)}
                     >
-                      {items.map((s) => (
-                        <span
-                          key={s.id}
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "6px",
-                            background: "var(--bg-panel)",
-                            borderRadius: "4px",
-                            padding: "4px 8px",
-                            fontSize: "13px",
-                          }}
-                        >
-                          <button
-                            className="btn-sm"
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              padding: "0 4px",
-                              fontSize: "13px",
-                              color: "var(--text-h)",
-                              cursor: "pointer",
-                            }}
-                            onClick={() => addFromCatalog(s.name)}
-                            title={`Add ${s.name} to this week's list`}
-                          >
-                            + {s.name}
-                          </button>
-                          <button
-                            className="btn-sm"
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              padding: 0,
-                              fontSize: "13px",
-                              color: "var(--text-muted)",
-                              cursor: "pointer",
-                            }}
-                            onClick={() => deleteSaving(s.id)}
-                            title={`Remove ${s.name} from saved groceries`}
-                          >
-                            ✕
-                          </button>
-                        </span>
-                      ))}
+                      <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                        🛒 Saved {label.toLowerCase()} ({items.length})
+                      </span>
+                      <span style={{ fontSize: "14px", color: "var(--text-muted)" }}>
+                        {expandedSections[key] ? "▴" : "▾"}
+                      </span>
                     </div>
+                    {expandedSections[key] && (
+                      <div
+                        className="row-gap"
+                        style={{ gap: "6px", flexWrap: "wrap", alignItems: "center" }}
+                      >
+                        {items.map((s) => (
+                          <div
+                            key={s.id}
+                            className="row-gap"
+                            style={{ gap: "2px", alignItems: "center" }}
+                          >
+                            <button
+                              className="btn-sm"
+                              style={{
+                                background: "var(--bg-panel)",
+                                border: "1px solid var(--border)",
+                                borderRadius: "4px",
+                                padding: "4px 8px",
+                                fontSize: "13px",
+                                color: "var(--text-h)",
+                                cursor: "pointer",
+                              }}
+                              onClick={() => addFromCatalog(s.name)}
+                              title={`Add ${s.name} to this week's list`}
+                            >
+                              + {s.name}
+                            </button>
+                            <button
+                              className="btn-sm"
+                              style={{
+                                background: "transparent",
+                                border: "none",
+                                padding: 0,
+                                fontSize: "13px",
+                                color: "var(--text-muted)",
+                                cursor: "pointer",
+                              }}
+                              onClick={() => deleteSaving(s.id)}
+                              title={`Remove ${s.name} from saved groceries`}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ) : null
               )}
             </div>
           )}
 
+          {/* Export links */}
           <div className="row-gap" style={{ marginTop: "12px", gap: "8px", flexWrap: "wrap" }}>
             <a className="link-btn" href="/grocery/export?format=csv" download>
               Download CSV
@@ -227,7 +239,7 @@ export default function GroceryList({ grocery, onGenerate }) {
             </a>
           </div>
 
-          {/* audit B3a — custom grocery items (auto-saved to catalog on add) */}
+          {/* Audit B3a — custom grocery items */}
           <div style={{ marginTop: "15px" }}>
             <input
               className="input-field"
@@ -276,7 +288,7 @@ export default function GroceryList({ grocery, onGenerate }) {
                         )}
                       </span>
                       <button className="btn-sm" onClick={() => removeExtra(item)}>
-                        ✕
+                        ×
                       </button>
                     </li>
                   );
@@ -321,6 +333,8 @@ export default function GroceryList({ grocery, onGenerate }) {
             ))}
           </div>
         </>
+                
+        
       )}
     </div>
   );

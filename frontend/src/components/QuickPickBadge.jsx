@@ -33,12 +33,12 @@ export default function QuickPickBadge({ onPickHome, onPickTakeout, result }) {
 
   const handleHome = () => {
     onPickHome();
-    setOpen(false);
+    // Don't close — wait for the async result to arrive, then show it
   };
 
   const handleTakeout = () => {
     onPickTakeout();
-    setOpen(false);
+    // Don't close — wait for the async result to arrive, then show it
   };
 
   return (
@@ -69,6 +69,25 @@ export default function QuickPickBadge({ onPickHome, onPickTakeout, result }) {
             marginTop: "6px",
           }}
         >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+            <strong style={{ fontSize: "13px" }}>Quick Pick</strong>
+            <button
+              className="btn-sm"
+              style={{
+                background: "transparent",
+                border: "none",
+                fontSize: "16px",
+                lineHeight: 1,
+                cursor: "pointer",
+                color: "var(--text-muted)",
+                padding: "0 4px",
+              }}
+              onClick={() => setOpen(false)}
+              title="Close"
+            >
+              ×
+            </button>
+          </div>
           <div className="row-wrap" style={{ gap: "6px", marginBottom: "8px" }}>
             <button className="btn-sm" style={{ flex: 1 }} onClick={handleHome}>
               Home
@@ -78,7 +97,7 @@ export default function QuickPickBadge({ onPickHome, onPickTakeout, result }) {
             </button>
           </div>
           {result && (
-            <div style={{ fontSize: "13px" }}>
+            <div style={{ fontSize: "13px", marginTop: "6px", padding: "6px", background: "var(--bg-panel)", borderRadius: "6px" }}>
               <strong>{result.mode === "home" ? "At Home:" : "Takeout:"}</strong>
               <div>{result.meal?.name || result.meal}</div>
               {result.meal?.type && <div style={{ opacity: 0.7 }}>{result.meal.type}</div>}

@@ -36,95 +36,89 @@ export default function Calendar({ menus }) {
   return (
     <div className="card">
       <h2>Calendar</h2>
-      {menus.map((menu) => (
-        <div key={menu.id} className="calendar-panel">
-          <strong style={{ marginBottom: "8px", display: "block" }}>Menu #{menu.id}</strong>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(7, 1fr)",
-              gap: "4px",
-            }}
-          >
-            {DAYS.map((day) => {
-              const meal = menu.meals?.[day];
-              const cellId = `${menu.id}|${day}`;
-              const isOpen = openCell === cellId;
-              const name = meal?.name ?? null;
-              return (
-                <div key={day}>
-                  <div
-                    style={{
-                      border: "1px solid var(--border)",
-                      borderRadius: "6px",
-                      padding: "6px 8px",
-                      minHeight: "44px",
-                      cursor: name ? "pointer" : "default",
-                      background: name ? "var(--bg-panel)" : "transparent",
-                      opacity: name ? 1 : 0.5,
-                    }}
-                  >
+      {/* §13.24 — scrollable container for long menu lists */}
+      <div className="calendar-scroll" style={{ maxHeight: "480px", overflowY: "auto", paddingRight: "4px" }}>
+        {menus.map((menu) => (
+          <div key={menu.id} className="calendar-panel">
+            <strong style={{ marginBottom: "8px", display: "block" }}>Menu #{menu.id}</strong>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(7, 1fr)",
+                gap: "4px",
+              }}
+            >
+              {DAYS.map((day) => {
+                const meal = menu.meals?.[day];
+                const cellId = `${menu.id}|${day}`;
+                const isOpen = openCell === cellId;
+                const name = meal?.name ?? null;
+                return (
+                  <div key={day}>
                     <div
                       style={{
-                        fontSize: "11px",
-                        color: "var(--text-muted)",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.04em",
+                        border: "1px solid var(--border)",
+                        borderRadius: "6px",
+                        padding: "6px 8px",
+                        minHeight: "44px",
+                        cursor: name ? "pointer" : "default",
+                        background: name ? "var(--bg-panel)" : "transparent",
+                        opacity: name ? 1 : 0.5,
                       }}
                     >
-                      {day}
-                    </div>
-                    {name ? (
                       <div
-                        style={{ fontWeight: 600, cursor: "pointer" }}
-                        onClick={() => toggle(cellId)}
+                        style={{
+                          fontSize: "11px",
+                          color: "var(--text-muted)",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.04em",
+                        }}
                       >
-                        {meal?.category ? (
-                          <span
-                            style={{
-                              display: "inline-block",
-                              width: "8px",
-                              height: "8px",
-                              borderRadius: "50%",
-                              background: "var(--accent)",
-                              marginRight: "6px",
-                              verticalAlign: "middle",
-                            }}
-                          />
-                        ) : null}
-                        {name}
-                        {meal?.ingredients?.length ? (
-                          <span
-                            style={{ opacity: 0.5, marginLeft: "4px" }}
-                          >
-                            {isOpen ? "▴" : "▾"}
-                          </span>
-                        ) : null}
+                        {day}
                       </div>
-                    ) : (
-                      <span style={{ opacity: 0.5 }}>—</span>
-                    )}
+                      {name ? (
+                        <div
+                          style={{ fontWeight: 600, cursor: "pointer" }}
+                          onClick={() => toggle(cellId)}
+                        >
+                          {meal?.category ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                width: "8px",
+                                height: "8px",
+                                borderRadius: "50%",
+                                background: "var(--accent)",
+                                marginRight: "6px",
+                                verticalAlign: "middle",
+                              }}
+                            />
+                          ) : null}
+                          {name}
+                          {meal?.ingredients?.length ? (
+                            <span style={{ opacity: 0.5, marginLeft: "4px" }}>
+                              {isOpen ? "▴" : "▾"}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span style={{ opacity: 0.5 }}>—</span>
+                      )}
+                    </div>
+                    {isOpen && meal?.ingredients?.length ? (
+                      <ul style={{ listStyle: "disc", padding: "4px 0 4px 18px", margin: 0, opacity: 0.9 }}>
+                        {meal.ingredients.map((ing, i) => (
+                          <li key={i}>{ing}</li>
+                        ))}
+                      </ul>
+                    ) : null}
                   </div>
-                  {isOpen && meal?.ingredients?.length ? (
-                    <ul
-                      style={{
-                        listStyle: "disc",
-                        padding: "4px 0 4px 18px",
-                        margin: 0,
-                        opacity: 0.9,
-                      }}
-                    >
-                      {meal.ingredients.map((ing, i) => (
-                        <li key={i}>{ing}</li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
