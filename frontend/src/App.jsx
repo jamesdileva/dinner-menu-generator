@@ -10,6 +10,7 @@ import Calendar from "./components/Calendar.jsx";
 import Insights from "./components/Insights.jsx";
 
 const UNDO_WINDOW_MS = 6000;
+const PAGE_SIZE_OPTIONS = [5, 10, 15, 20];
 
 function setTheme(theme) {
   localStorage.setItem("theme", theme);
@@ -41,6 +42,12 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // §13.21b — configurable page size (default 5, persisted to localStorage)
+  const [mealsPerPage, setMealsPerPage] = useState(() => {
+    const saved = localStorage.getItem("mealsPerPage");
+    return saved ? parseInt(saved, 10) : MEALS_PER_PAGE;
+  });
+
   // §5.12 inline edit + undo
   const [editingMeal, setEditingMeal] = useState(null);
   const [editName, setEditName] = useState("");
@@ -56,6 +63,11 @@ export default function App() {
   // §13.21 header badges
   const [addMealModalOpen, setAddMealModalOpen] = useState(false);
   const [quickPickResult, setQuickPickResult] = useState(null);
+
+  // §13.3b — add snack / add staple badges (modal with single name input)
+  const [addGroceryModalOpen, setAddGroceryModalOpen] = useState(false);
+  const [addGroceryGroup, setAddGroceryGroup] = useState("snacks");
+  const [addGroceryName, setAddGroceryName] = useState("");
 
   async function withLoading(fn) {
     setError(null);
@@ -93,6 +105,16 @@ export default function App() {
     return () => {
       if (undoTimer.current) clearTimeout(undoTimer.current);
     };
+  }, []);
+
+  // §5.20 — browser close detection: send a beacon to /shutdown so the
+  // PyInstaller exe can exit when the user closes the tab/window.
+  useEffect(() => {
+    const handleUnload = () => {
+      navigator.sendBeacon("/shutdown");
+    };
+    window.addEventListener("beforeunload", handleUnload);
+    return () => window.removeEventListener("beforeunload", handleUnload);
   }, []);
 
   const getTodayMeal = () => withLoading(async () => {
@@ -175,7 +197,7 @@ export default function App() {
 
   const loadMeals = (page = 1, categoryFilter = null, searchQuery = null) =>
     withLoading(async () => {
-      let url = `/meals?page=${page}&limit=${MEALS_PER_PAGE}`;
+      let url = `/meals?page=${page}&limit=${mealsPerPage}`;
       if (categoryFilter !== null) setMealCategory(categoryFilter);
       if (searchQuery !== null) setSearch(searchQuery);
       if (categoryFilter !== null && categoryFilter !== "") {
@@ -190,6 +212,13 @@ export default function App() {
       setMealsPages(data.pages);
       setMealsTotal(data.total);
     });
+
+  const onPerPageChange = (e) => {
+    const val = parseInt(e.target.value, 10);
+    setMealsPerPage(val);
+    localStorage.setItem("mealsPerPage", val);
+    loadMeals(1, mealCategory, search);
+  };
 
   const loadCategories = () => {
     apiFetch("/meals/categories")
@@ -289,6 +318,22 @@ export default function App() {
       loadMeals(1, mealCategory, search);
     });
 
+  // §13.3b — add a snack or staple to the saved-grocery catalog
+  const addGrocery = () =>
+    withLoading(async () => {
+      await apiFetch("/saving", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: addGroceryName.trim(),
+          group: addGroceryGroup,
+        }),
+      });
+      setAddGroceryName("");
+      setAddGroceryModalOpen(false);
+      loadSavings();
+    });
+
   // §6.14 Escape cancels edit or modal, dismisses undo
   useEffect(() => {
     const onKey = (e) => {
@@ -299,12 +344,14 @@ export default function App() {
           dismissUndo();
         } else if (addMealModalOpen) {
           setAddMealModalOpen(false);
+        } else if (addGroceryModalOpen) {
+          setAddGroceryModalOpen(false);
         }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [editingMeal, undo, addMealModalOpen]);
+  }, [editingMeal, undo, addMealModalOpen, addGroceryModalOpen]);
 
   useEffect(() => {
     loadMeals();
@@ -328,6 +375,22 @@ export default function App() {
             title="Add a new meal"
           >
             ＋ Add Meal
+          </button>
+          <button
+            className="btn-sm"
+            style={{ padding: "4px 10px", fontSize: "13px" }}
+            onClick={() => { setAddGroceryGroup("snacks"); setAddGroceryModalOpen(true); }}
+            title="Add a snack to the saved grocery catalog"
+          >
+            ＋ Add Snack
+          </button>
+          <button
+            className="btn-sm"
+            style={{ padding: "4px 10px", fontSize: "13px" }}
+            onClick={() => { setAddGroceryGroup("staples"); setAddGroceryModalOpen(true); }}
+            title="Add a staple to the saved grocery catalog"
+          >
+            ＋ Add Staple
           </button>
           <QuickPickBadge
             onPickHome={getTodayMeal}
@@ -378,6 +441,8 @@ export default function App() {
         mealsPage={mealsPage}
         mealsPages={mealsPages}
         mealsTotal={mealsTotal}
+        mealsPerPage={mealsPerPage}
+        onPerPageChange={onPerPageChange}
         categories={categories}
         editingMeal={editingMeal}
         editName={editName}
@@ -482,6 +547,30 @@ export default function App() {
             Add Meal
           </button>
           <input type="file" onChange={uploadImage} />
+        </div>
+      </Modal>
+
+      {/* §13.3b — Add Snack / Add Staple modal */}
+      <Modal
+        title={`Add ${addGroceryGroup === "snacks" ? "Snack" : "Staple"}`}
+        open={addGroceryModalOpen}
+        onClose={() => setAddGroceryModalOpen(false)}
+      >
+        <input
+          className="input-field"
+          placeholder={addGroceryGroup === "snacks" ? "Snack name…" : "Staple name…"}
+          value={addGroceryName}
+          onChange={(e) => setAddGroceryName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && addGrocery()}
+          autoFocus
+        />
+        <div className="row-gap" style={{ gap: "10px", marginTop: "10px" }}>
+          <button className="btn" onClick={addGrocery}>
+            Add
+          </button>
+          <button className="btn-sm" onClick={() => setAddGroceryModalOpen(false)}>
+            Cancel
+          </button>
         </div>
       </Modal>
     </div>

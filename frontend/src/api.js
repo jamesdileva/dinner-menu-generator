@@ -1,7 +1,7 @@
 // Shared frontend API client (created during the §4.1 modularization).
 // `apiFetch` throws on non-2xx so callers can centralise error handling.
 
-export const MEALS_PER_PAGE = 20;
+export const MEALS_PER_PAGE = 5;
 
 // audit §8.3 / §5.22 — every request carries a custom header so the backend can verify it
 // is same-origin (CSRF defense for this no-cookie JSON API).

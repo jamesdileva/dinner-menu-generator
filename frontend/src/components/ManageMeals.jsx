@@ -7,7 +7,7 @@ import { useState } from "react";
 
 
 export default function ManageMeals({
-  meals, mealsPage, mealsPages, mealsTotal,
+  meals, mealsPage, mealsPages, mealsTotal, mealsPerPage, onPerPageChange,
   categories, editingMeal, editName, editIngredients, editCategory,
   onEditMeal, onCancelEdit, onSaveEdit, onDeleteMeal,
   onPageChange, onCategoryFilter, onSearch,
@@ -113,7 +113,13 @@ export default function ManageMeals({
 
           <div className="row-between" style={{ marginTop: "10px", fontSize: "13px", color: "var(--text-muted)" }}>
             <span>Page {mealsPage}/{mealsPages} ({mealsTotal} meals)</span>
-            <div className="row-gap" style={{ gap: "6px" }}>
+            <div className="row-gap" style={{ gap: "6px", alignItems: "center" }}>
+              <label style={{ fontSize: "12px", color: "var(--text-muted)" }}>Show:</label>
+              <select className="input-field-sm" value={mealsPerPage || 5} onChange={onPerPageChange} style={{ width: "60px", padding: "2px 6px", fontSize: "13px" }}>
+                {[5, 10, 15, 20].map((sz) => (
+                  <option key={sz} value={sz}>{sz}</option>
+                ))}
+              </select>
               <button className="btn-sm" onClick={() => onPageChange(mealsPage - 1)} disabled={mealsPage <= 1}>Prev</button>
               <button className="btn-sm" onClick={() => onPageChange(mealsPage + 1)} disabled={mealsPage >= mealsPages}>Next</button>
             </div>

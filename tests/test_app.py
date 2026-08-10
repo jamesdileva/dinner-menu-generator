@@ -206,6 +206,22 @@ def test_rate_limit_429(client):
     assert client.get("/health").status_code == 429
 
 
+def test_shutdown_bypasses_csrf(client, monkeypatch):
+    # §5.20 — /shutdown must be reachable from navigator.sendBeacon (no CSRF header).
+    # Mock os._exit so the test process doesn't actually die.
+    import backend.app as app_module
+    monkeypatch.setattr(app_module.os, "_exit", lambda code: None)
+    r = client.post("/shutdown")
+    assert r.status_code == 200
+    assert r.get_json()["status"] == "ok"
+
+
+def test_csrf_still_blocks_other_post(client):
+    # §8.3 — POST without the custom header is still rejected (except /shutdown)
+    r = client.post("/meal", json={"name": "test"})
+    assert r.status_code == 403
+
+
 def test_saving_catalog_crud(client):
     # §13.3b — full lifecycle: list (empty) → create → list → idempotent re-save → delete → list
     r0 = client.get("/savings")
@@ -252,6 +268,20 @@ def test_saving_groups_snacks_vs_staples(client):
     assert oreos["group"] == "snacks"
     assert ketchup["group"] == "staples"
     assert milk["group"] == "staples"
+
+
+def test_saving_force_group_override(client):
+    # §13.3b — explicit group override: force "milk" into snacks
+    milk = client.post("/saving", json={"name": "Milk", "group": "snacks"}, headers=HDR).get_json()["saving"]
+    assert milk["group"] == "snacks"
+
+    # force "oreos" into staples
+    oreos = client.post("/saving", json={"name": "Oreos", "group": "staples"}, headers=HDR).get_json()["saving"]
+    assert oreos["group"] == "staples"
+
+    # invalid group value falls back to auto-categorization
+    cheese = client.post("/saving", json={"name": "Cheese", "group": "junk"}, headers=HDR).get_json()["saving"]
+    assert cheese["group"] in ("snacks", "staples")  # not "junk"
 
 
 def test_saving_missing_name(client):

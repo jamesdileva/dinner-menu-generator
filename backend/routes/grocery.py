@@ -146,8 +146,14 @@ def add_saving() -> Response:
 
     # §13.3b — auto-categorize into snacks vs. staples using the same aisle logic
     # the grocery builder uses (categorize_ingredient expects lowercase input).
-    category = categorize_ingredient(name.lower())
-    group = "snacks" if category == "Snacks" else "staples"
+    # An explicit `group` override ("snacks" or "staples") is accepted so the
+    # frontend's "+ Add Snack" / "+ Add Staple" badges can force the bucket.
+    forced_group = sanitize_text(data.get("group", ""), max_len=20)
+    if forced_group in ("snacks", "staples"):
+        group = forced_group
+    else:
+        category = categorize_ingredient(name.lower())
+        group = "snacks" if category == "Snacks" else "staples"
 
     saving = SavedGrocery(name=name, group=group)
     db.session.add(saving)

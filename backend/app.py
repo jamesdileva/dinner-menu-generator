@@ -113,6 +113,13 @@ def health():
     return jsonify({"status": "ok"})
 
 
+@app.route("/shutdown", methods=["POST"])
+def shutdown():
+    logger.info("Shutdown requested via /shutdown — exiting.")
+    os._exit(0)
+    return jsonify({"status": "ok"})  # unreachable in production; needed for testing
+
+
 # --- Frontend serving ----------------------------------------------------
 @app.route("/")
 def serve():
@@ -148,6 +155,8 @@ register_cli(app)
 # now 403. GET/HEAD/OPTIONS/TRACE are exempt. See audit.md §5.22.
 @app.before_request
 def _csrf_protect():
+    if request.path == "/shutdown":
+        return  # allow browser-close beacon to reach /shutdown without CSRF header
     if request.method in ("POST", "PUT", "PATCH", "DELETE"):
         if request.headers.get("X-Requested-With") != "XMLHttpRequest":
             return jsonify({"error": "CSRF verification failed"}), 403
