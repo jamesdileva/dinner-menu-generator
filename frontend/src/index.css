@@ -481,11 +481,6 @@ h2 {
     padding: 20px;
     max-width: 100%;
   }
-  /* Stack the 2-column grids on tablet */
-  .main-grid,
-  .secondary-grid {
-    grid-template-columns: 1fr;
-  }
   .card {
     padding: 12px;
   }
@@ -547,6 +542,14 @@ h2 {
   }
 }
 
+/* 600px — phones (stack main-grid + secondary-grid to 1 column) */
+@media (max-width: 600px) {
+  .main-grid,
+  .secondary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* 480px — small phones */
 @media (max-width: 480px) {
   :root {
@@ -579,9 +582,5 @@ h2 {
   .row-wrap {
     flex-direction: column;
     align-items: flex-start;
-  }
-  /* Extras input + Add button: input takes full width */
-  .row-gap.row-gap > .input-field {
-    width: 100%;
   }
 }
