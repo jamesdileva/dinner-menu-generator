@@ -163,8 +163,21 @@ python -m PyInstaller --noconfirm --onefile --windowed \
   --add-data "ingredient_rules.json;." \
   --add-data "meal_name_fixes.json;." \
   --add-data "nutrition_rules.json;." \
+  --add-data "backup.json;." \
+  --exclude-module torch --exclude-module torchvision --exclude-module torchaudio \
+  --exclude-module ultralytics --exclude-module xformers --exclude-module accelerate \
+  --exclude-module kokoro --exclude-module optimum \
+  --exclude-module pandas --exclude-module scipy --exclude-module matplotlib \
+  --exclude-module pyarrow --exclude-module pydantic --exclude-module pydantic_core \
+  --exclude-module _pytest --exclude-module pytest \
+  --exclude-module aiohttp --exclude-module fsspec --exclude-module watchdog \
+  --exclude-module fonttools --exclude-module hyperframe --exclude-module h2 \
+  --exclude-module hpack --exclude-module multidict --exclude-module yarl --exclude-module aiosignal \
   app.py
 ```
+
+> **Tip:** Once the spec file is generated, subsequent rebuilds can use
+> `python -m PyInstaller app.spec` from `backend/`.
 
 The compiled `.exe` appears in `backend/dist/`.
 
