@@ -364,8 +364,8 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      {/* Header with badge buttons */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+      {/* Header with badge buttons (§13.21b — sticky on scroll) */}
+      <div className="app-header">
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <h1 style={{ margin: 0 }}>Dinner Planner</h1>
           <button

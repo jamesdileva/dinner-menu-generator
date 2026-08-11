@@ -463,6 +463,20 @@ h2 {
   margin-top: 6px;
 }
 
+/* §13.21b — sticky header keeps badge buttons visible on scroll */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
 /* ============= Mobile / responsive breakpoints (§13.14) ============= */
 
 /* 1024px — tablets, small laptop screens */
@@ -547,6 +561,16 @@ h2 {
   .main-grid,
   .secondary-grid {
     grid-template-columns: 1fr;
+  }
+  .app-header {
+    gap: 6px;
+  }
+  .app-header h1 {
+    font-size: 26px;
+  }
+  .app-header .btn-sm {
+    padding: 3px 6px;
+    font-size: 11px;
   }
 }
 
