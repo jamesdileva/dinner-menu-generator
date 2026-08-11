@@ -466,7 +466,7 @@ export default function App() {
       {/* Weekly Menu + Grocery List (side-by-side on desktop, stacked on mobile) */}
       <div className="main-grid">
         <Menu menu={menu} onGenerate={loadMenu} onReroll={rerollDay} />
-        <GroceryList grocery={grocery} onGenerate={loadGrocery} />
+        <GroceryList grocery={grocery} onGenerate={loadGrocery} savings={savings} onSavingsChange={loadSavings} />
       </div>
 
       {/* Past Menus + Insights (secondary, side-by-side on desktop) */}

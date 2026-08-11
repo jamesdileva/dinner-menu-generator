@@ -9,11 +9,13 @@
 import { useState, useEffect } from "react";
 import { apiFetch } from "../api.js";
 
-export default function GroceryList({ grocery, onGenerate }) {
+export default function GroceryList({ grocery, onGenerate, savings: savingsProp, onSavingsChange }) {
   const [extras, setExtras] = useState(null);
   const [extra, setExtra] = useState("");
   const [err, setErr] = useState("");
-  const [savings, setSavings] = useState([]);
+  // §13.3b — savings comes from App.jsx (shared state) so snack/staple additions
+  // show up immediately without a manual refresh.
+  const savings = savingsProp || [];
   // §13.3b — track which items are being saved so the UI can show loading state
   const [savingState, setSavingState] = useState({}); // item name -> "idle" | "saving" | "saved"
 
@@ -22,19 +24,12 @@ export default function GroceryList({ grocery, onGenerate }) {
       .then((r) => setExtras(r.extras || []))
       .catch((e) => setErr(e.message));
 
-  const loadSavings = () =>
-    apiFetch("/savings")
-      .then((r) => setSavings(r.savings || []))
-      .catch((e) => setErr(e.message));
+  const loadSavings = onSavingsChange || (() => {});
 
   // keep the extra-items list in sync with the latest grocery generation
   useEffect(() => {
     if (grocery) loadExtras();
   }, [grocery]);
-
-  useEffect(() => {
-    loadSavings();
-  }, []);
 
   // §13.3b — when an extra is added, auto-save it to the saved-grocery catalog
   const addExtra = (name = extra) => {
@@ -231,12 +226,15 @@ export default function GroceryList({ grocery, onGenerate }) {
               Download Text
             </a>
             <span style={{ opacity: 0.5 }}>|</span>
-            <a
+            <button
               className="link-btn"
-              href={`mailto:?subject=My%20Shopping%20List&body=${encodeURIComponent(textBody())}`}
+              onClick={() => window.open(
+                `mailto:?subject=My%20Shopping%20List&body=${encodeURIComponent(textBody())}`,
+                "_blank"
+              )}
             >
               Email list
-            </a>
+            </button>
           </div>
 
           {/* Audit B3a — custom grocery items */}

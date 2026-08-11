@@ -1679,3 +1679,41 @@ The most impactful improvements would be:
 5. Add meal categories/tags (high-value feature)
 
 The codebase shows clear intent to be well-structured (the empty route/service/model files prove this), but the execution was left incomplete. With focused effort, this could be a solid, maintainable application.
+
+---
+
+## Changelog
+
+All notable changes applied by opencode are documented here. Dates reflect the session in which the work was done.
+
+### 2026-08-11 — Three Feature Additions
+
+1. **§13.21b Pagination Settings**
+   - `frontend/src/api.js`: Changed `MEALS_PER_PAGE` default from `20` → `5`.
+   - `frontend/src/App.jsx`: Added `mealsPerPage` state (default 5, persisted to `localStorage`). Updated `loadMeals()` to use the state variable instead of the constant. Added `onPerPageChange` handler that persists to `localStorage` and reloads page 1.
+   - `frontend/src/components/ManageMeals.jsx`: Added a `<select>` dropdown (options: 5/10/15/20) in the pagination bar, accepting `mealsPerPage` and `onPerPageChange` props.
+   - Tests added: none needed (backend pagination already tested in §4.7).
+
+2. **§5.20b Browser Close Detection**
+   - `backend/app.py`: Added `POST /shutdown` endpoint (exempt from CSRF) that calls `os._exit(0)` to cleanly terminate the PyInstaller exe when the user closes the browser tab/window.
+   - `frontend/src/App.jsx`: Added `beforeunload` event listener in `useEffect` that calls `navigator.sendBeacon("/shutdown")`. This reliably fires even as the page is closing (unlike `fetch`).
+   - Tests added: `test_shutdown_bypasses_csrf` (verifies `/shutdown` is reachable without CSRF header), `test_csrf_still_blocks_other_post` (verifies CSRF still applies to all other POST endpoints).
+
+3. **§13.3c Saved Grocery Quick-Add Badges**
+   - `backend/routes/grocery.py`: Modified `/saving` POST endpoint to accept an optional `group` field ("snacks"\|"staples") that overrides auto-categorization. Invalid values fall back to auto-categorization via `categorize_ingredient()`.
+   - `frontend/src/App.jsx`: Added `addGroceryModalOpen`, `addGroceryGroup`, and `addGroceryName` state. Added `addGrocery()` function that POSTs to `/saving` with `{name, group}`. Added two header badges (`＋ Add Snack`, `＋ Add Staple`) styled identically to `＋ Add Meal`. Added a Modal with a single name input. Added Escape key handling for the new modal. Added `beforeunload` listener for browser close detection.
+   - `frontend/src/components/GroceryList.jsx`: Replaced inline saved-grocery palette with collapsible `Saved Snacks` / `Saved Staples` sections at the top of the grocery list. Each section has a clickable header (count + ▴/▾ toggle) and item badges with add (＋) and delete (✕) buttons.
+   - Tests added: `test_saving_force_group_override` (verifies explicit group override, fallback for invalid values).
+
+### 2026-08-11 — Bug Fixes: mailto closing app + savings not refreshing
+
+1. **§5.20b Mailto links no longer kill the server**
+   - `backend/app.py`: Changed `/shutdown` endpoint from immediate `os._exit(0)` to a 10-second `threading.Timer` delay. Added module-level `_shutdown_timer` variable. This gives users a grace window if they accidentally navigate away (e.g. clicking Email list).
+   - `frontend/src/components/GroceryList.jsx`: Changed "Email list" `<a href="mailto:...">` to a `<button onClick={() => window.open(mailto, '_blank')}>` so the SPA page doesn't navigate away.
+   - `frontend/src/components/Menu.jsx`: Same fix for "Email this menu" link.
+   - Tests updated: `test_shutdown_bypasses_csrf` now mocks both `os._exit` and `threading.Timer`.
+
+2. **§13.3b Snacks/staples now show immediately after adding**
+   - `frontend/src/App.jsx`: Pass `savings` and `onSavingsChange={loadSavings}` to `<GroceryList>` as props.
+   - `frontend/src/components/GroceryList.jsx`: Removed internal `savings` state and `loadSavings()` function. Now uses the `savings` prop from App.jsx (shared state). Added `onSavingsChange` callback prop used by `saveToCatalog` and `deleteSaving` to trigger parent refresh.
+   - This ensures that when a user adds a snack/staple via `+ Add Snack`/`+ Add Staple` badges, the GroceryList's saved grocery sections update immediately without needing a browser refresh.

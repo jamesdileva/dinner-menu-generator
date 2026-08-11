@@ -207,10 +207,13 @@ def test_rate_limit_429(client):
 
 
 def test_shutdown_bypasses_csrf(client, monkeypatch):
-    # §5.20 — /shutdown must be reachable from navigator.sendBeacon (no CSRF header).
-    # Mock os._exit so the test process doesn't actually die.
+    # §5.20b — /shutdown must be reachable from navigator.sendBeacon (no CSRF header).
+    # Mock os._exit and threading.Timer so the test process doesn't actually die
+    # and we don't leave dangling timers.
     import backend.app as app_module
     monkeypatch.setattr(app_module.os, "_exit", lambda code: None)
+    from unittest.mock import MagicMock
+    monkeypatch.setattr(app_module.threading, "Timer", lambda *a, **kw: MagicMock())
     r = client.post("/shutdown")
     assert r.status_code == 200
     assert r.get_json()["status"] == "ok"

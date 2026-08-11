@@ -34,13 +34,16 @@ export default function Menu({ menu, onGenerate, onReroll }) {
 
       {menu && (
         <>
-          <a
+          <button
             className="link-btn"
             style={{ marginRight: "8px" }}
-            href={`mailto:?subject=My%20Weekly%20Menu&body=${encodeURIComponent(emailBody)}`}
+            onClick={() => window.open(
+              `mailto:?subject=My%20Weekly%20Menu&body=${encodeURIComponent(emailBody)}`,
+              "_blank"
+            )}
           >
             Email this menu
-          </a>
+          </button>
 
           <ul style={{ listStyle: "none", padding: 0, marginTop: "10px" }}>
             {dayOrder.map((day) => {

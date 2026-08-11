@@ -20,3 +20,8 @@ Then the grocery list has an expandable 'snacks' section at the top + 'staples' 
 5. when I reduce page size the columns(our menu+grocery list) side by side, and the (past menus + insights) side by side are now squished on top of each other, was hoping we could resize it and theyd stay side by side
 
 6. we may need to check search meals functionality since it works with category (we'd be adding snacks+staples here) but we use category to filter (set to 'all' at the moment - no categories exist - I havent added any) just wanted to note because we are adding 'snacks' and 'staples' possibly?
+
+
+emailto: opens and closes app(emailto can open in another tab to avoid refresh or linking to gmail from app->gmail(at the moment))
+refresh-> closes app(had to refresh for snacks/staples to show up in drowdowns should auto refresh and would avoid this)
+think our check for if app closed maybe too strict 

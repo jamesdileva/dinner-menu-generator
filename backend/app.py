@@ -106,6 +106,9 @@ if hasattr(sys, "_MEIPASS"):
 else:
     _BACKUP_JSON = os.path.abspath(os.path.join(os.path.dirname(__file__), "backup.json"))
 
+# §5.20b — graceful shutdown timer (None when idle, set when /shutdown is called)
+_shutdown_timer: "threading.Timer | None" = None
+
 
 # --- Health check (audit §4.4) -------------------------------------------
 @app.route("/health")
@@ -115,9 +118,18 @@ def health():
 
 @app.route("/shutdown", methods=["POST"])
 def shutdown():
-    logger.info("Shutdown requested via /shutdown — exiting.")
-    os._exit(0)
-    return jsonify({"status": "ok"})  # unreachable in production; needed for testing
+    # §5.20b — delay the actual exit so brief navigations (e.g. clicking a
+    # mailto: link) don't kill the server. If the user navigates back within
+    # the grace window, the timer is still ticking but the browser can re-open
+    # the page and the server will still be alive for ~10 s.
+    global _shutdown_timer
+    if _shutdown_timer is not None:
+        _shutdown_timer.cancel()
+    _shutdown_timer = threading.Timer(10.0, lambda: os._exit(0))
+    _shutdown_timer.daemon = True
+    _shutdown_timer.start()
+    logger.info("Shutdown requested via /shutdown — exiting in 10s (grace period).")
+    return jsonify({"status": "ok"})
 
 
 # --- Frontend serving ----------------------------------------------------

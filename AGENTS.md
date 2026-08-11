@@ -174,13 +174,14 @@ site-packages but are not project dependencies — without these the build can t
 | PUT    | `/grocery/purchased`   | Replace the checked-off items list (§13.3)                |
 | POST   | `/grocery/purchased/:item` | Toggle a single item's checked-off state (§13.3)      |
 | GET    | `/snacks`              | Alias for `/savings` (backward compat, §13.3b)                  |
-| POST   | `/savings`              | Add a saved grocery (auto-groups as snacks/staples, §13.23)      |
+| POST   | `/savings`              | Add a saved grocery (auto-groups as snacks/staples, §13.23); accepts optional `group` override (§13.3c)      |
 | GET    | `/savings`              | List all saved groceries with group (snacks/staples) (§13.23)    |
 | DEL    | `/saving/:id`           | Delete a saved grocery from the catalog (§13.3b)                  |
 | GET    | `/insights`         | Macro overview + deficiency flags + swap tips over last menus (B2) |
 | GET    | `/export`           | Export all meals and menus as JSON                  |
 | POST   | `/import`           | Import meals and menus from JSON body               |
 | GET,POST| `/import-file`      | Import from `?path=<file>`, a multipart upload, or legacy `backup.json` (§5.4) |
+| POST   | `/shutdown`         | Trigger clean process exit (browser-close beacon, §5.20b)                 |
 
 ## Data Model
 
@@ -257,6 +258,8 @@ menus generated after the edit, including the grocery list built from the latest
 >
 > **Phase D completed through 2026-08-10:** §13.21 (UI layout restructure), §13.22 (auto-import),
 > §13.23 (saved groceries tabs), §13.24 (scrollable history), §16 (deferred Ollama features documented).
+>
+> **Latest fixes through 2026-08-11:** §13.21b (configurable page-size selector 5/10/15/20, default 5, persisted to localStorage), §5.20b (delayed `/shutdown` with 10-second grace period so brief navigations like clicking a `mailto:` link don't kill the server; `mailto:` links changed to `window.open` instead of navigation), §13.3c (`+ Add Snack` / `+ Add Staple` header badges with modal; backend `/saving` accepts optional `group` override).
 >
 > **Remaining:**
 > - (see `audit.md` §6–§11 for the low-priority polish / dead-code / perf / tooling backlog)
