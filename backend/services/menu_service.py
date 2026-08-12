@@ -5,7 +5,7 @@ All DB writes happen inside Flask request context (routes call these helpers).
 """
 
 import random
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from models import Meal, WeeklyMenu, UsedMeal, db
@@ -126,10 +126,31 @@ def generate_week() -> Union[Dict[str, Any], Tuple[Dict[str, str], int]]:
     }  # §5.13 store id, not snapshot
 
     menu = WeeklyMenu(meals=result)
+    # §13a.2 — tag with this week's Monday so the app can resume it later
+    menu.week_start = (date.today() - timedelta(days=date.today().weekday())).isoformat()
     db.session.add(menu)
     db.session.commit()
 
     return result
+
+
+def get_last_week_menu() -> Optional[Dict[str, Any]]:
+    """§13a.2 — return the most recent WeeklyMenu if it belongs to the current week.
+
+    Returns the expanded menu dict or None (no menu yet this week). Read-only; does
+    not create or modify any rows.
+    """
+    today = date.today()
+    current_monday = (today - timedelta(days=today.weekday())).isoformat()
+
+    last_menu = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).first()
+    if not last_menu:
+        return None
+
+    if last_menu.week_start != current_monday:
+        return None
+
+    return expand_menu(last_menu.meals)
 
 
 def reroll_day(day: str) -> Union[Dict[str, Any], Tuple[Dict[str, str], int]]:

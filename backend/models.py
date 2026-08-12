@@ -69,6 +69,9 @@ class WeeklyMenu(db.Model):
     # build_grocery_list's grocery_totals dict), so it stays consistent across meal-derived
     # ingredients and user-added extras.
     purchased = db.Column(db.JSON, nullable=True, default=lambda: [])
+    # §13a.2 — Monday date of the week this menu covers (ISO YYYY-MM-DD). Lets the app
+    # resume the current week's menu instead of generating a new one on every restart.
+    week_start = db.Column(db.String(10), nullable=True, index=True)
 
 
 class UsedMeal(db.Model):

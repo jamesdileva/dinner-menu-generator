@@ -327,3 +327,24 @@ def test_saving_click_adds_to_extras(client):
     next_extras = list(before) + ["Hummus"]
     r = client.put("/grocery/extras", json={"items": next_extras}, headers=HDR)
     assert "Hummus" in r.get_json()["extras"]
+
+
+def test_menu_last_resumes_current_week(client):
+    # §13a.2 — GET /menu/last returns the current week's menu if one exists, else null.
+    # No menu yet -> null.
+    r0 = client.get("/menu/last")
+    assert r0.status_code == 200
+    assert r0.get_json() == {"menu": None}
+
+    # Generate a menu (this week) -> /menu/last should return it.
+    for i in range(7):
+        _add(client, f"Meal {i}", ["rice", "chicken"])
+    week = client.get("/menu/week").get_json()
+    assert set(week.keys()) == {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
+
+    r1 = client.get("/menu/last")
+    assert r1.get_json()["menu"] is not None
+    # Meals are randomly ordered, so just verify Mon has a valid meal name
+    monday_meal = r1.get_json()["menu"]["Mon"]
+    assert monday_meal["name"].startswith("Meal")
+

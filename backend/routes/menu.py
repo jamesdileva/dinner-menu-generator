@@ -4,7 +4,8 @@ Blueprint: `menu_bp`
   GET  /menu/today        quick pick: random home meal (no repeats today)
   GET  /menu/takeout      quick pick: random takeout spot
   GET  /menu/decide       quick pick: home OR takeout
-  GET  /menu/week         generate a 7-day weekly menu
+  GET  /menu/week         generate a 7-day weekly menu (always fresh)
+  GET  /menu/last         return the current week's menu if one exists, else null (§13a.2)
   POST /menu/reroll/<day> reroll one day of the last weekly menu
   GET  /menus             list all saved weekly menus (history view, §5.15)
   GET  /insights          macro overview + deficiency flags + swap tips (audit B2)
@@ -25,6 +26,7 @@ from services.menu_service import (
     set_menu_day,
     expand_menu,
     list_menus,
+    get_last_week_menu,
 )
 from services.nutrition_service import insights
 
@@ -68,6 +70,11 @@ def week() -> Response:
         return jsonify({"error": "Internal server error"}), 500
 
 
+@menu_bp.route("/menu/last", methods=["GET"])
+def last() -> Response:
+    """§13a.2 — return the current week's menu if one exists (read-only)."""
+    last_menu = get_last_week_menu()
+    return jsonify({"menu": last_menu})
 @menu_bp.route("/menu/reroll/<day>", methods=["POST"])
 def reroll(day: str) -> Response:
     return _respond(reroll_day(day))

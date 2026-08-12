@@ -127,9 +127,14 @@ export default function App() {
     setQuickPickResult({ mode: "takeout", meal: data });
   });
 
+  // §13a.2 — load the current week's menu if one exists; fall back to generating a new one.
   const loadMenu = () => withLoading(async () => {
-    const data = await apiFetch("/menu/week");
-    setMenu(data);
+    const last = await apiFetch("/menu/last");
+    if (last.menu) {
+      setMenu(last.menu);
+    } else {
+      setMenu(await apiFetch("/menu/week"));
+    }
     setGrocery(null);
   });
 
@@ -356,6 +361,9 @@ export default function App() {
   useEffect(() => {
     loadMeals();
     loadCategories();
+    // §13a.2 — resume last week's menu if present, then load the grocery list
+    loadMenu();
+    loadGrocery();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
