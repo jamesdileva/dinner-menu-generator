@@ -1,10 +1,12 @@
 // Insights tab (audit B2): last-few-weeks macro overview + deficiency flags +
-// rule-based swap suggestions. Lazy-fetches GET /insights (no backend DB writes).
+// rule-based swap suggestions. §16.3: when Ollama is enabled and available, the
+// backend augments the response with ``ai_suggestions`` (nuanced, meal-specific
+// guidance). Lazy-fetches GET /insights (no backend DB writes).
 
 const barWrap = { marginTop: "8px", marginBottom: "6px" };
 const barTrack = { flex: 1, height: "12px", background: "var(--bg-panel)", borderRadius: "6px", overflow: "hidden" };
 
-export default function Insights({ data, onGenerate }) {
+export default function Insights({ data, onGenerate, ollamaEnabled }) {
   if (data === null) {
     return (
       <div className="card">
@@ -79,6 +81,28 @@ export default function Insights({ data, onGenerate }) {
           </div>
         ))}
       </div>
+
+      {/* §16.3 — AI-enhanced insights (shown when available) */}
+      {ollamaEnabled && data.ai_suggestions && data.ai_suggestions.length > 0 && (
+        <div style={{ marginTop: "12px", padding: "10px", background: "var(--bg-panel)", borderRadius: "8px" }}>
+          <h3 style={{ color: "var(--accent)", fontSize: "14px", marginBottom: "8px" }}>
+            🧠 AI Insights
+          </h3>
+          {data.ai_suggestions.map((s, i) => (
+            <div key={i} style={{ marginBottom: "6px", fontSize: "13px" }}>
+              • {s}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {ollamaEnabled && !data.ai_suggestions && (
+        <div style={{ marginTop: "12px" }}>
+          <button className="btn-sm" style={{ fontSize: "12px" }} onClick={onGenerate}>
+            Enhance with AI
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -27,8 +27,9 @@ from services.menu_service import (
     expand_menu,
     list_menus,
     get_last_week_menu,
+    suggest_meals,
 )
-from services.nutrition_service import insights
+from services.nutrition_service import insights, enhanced_insights
 
 menu_bp = Blueprint("menu_bp", __name__)
 logger = logging.getLogger(__name__)
@@ -96,5 +97,25 @@ def menus() -> Response:
 
 @menu_bp.route("/insights", methods=["GET"])
 def insights_route() -> Response:
-    """Audit B2: last-few-weeks macro overview + deficiency flags + swap suggestions."""
-    return _respond(insights())
+    """Audit B2: last-few-weeks macro overview + deficiency flags + swap suggestions.
+
+    §16.3 — when Ollama is enabled, also includes ``ai_suggestions`` (nuanced,
+    meal-specific guidance).  When disabled, ``ai_suggestions`` is ``null``.
+    """
+    return _respond(enhanced_insights())
+
+
+@menu_bp.route("/menu/suggest", methods=["GET"])
+def suggest() -> Response:
+    """§16.4 — AI meal suggestions via local Ollama.
+
+    Accepts optional ``preferences`` query param (free text).  Returns
+    ``{"suggestions": [...]}`` — empty list when Ollama is disabled/unavailable.
+    """
+    preferences = request.args.get("preferences", "")
+    try:
+        suggestions = suggest_meals(preferences=preferences)
+        return jsonify({"suggestions": suggestions})
+    except Exception:
+        logger.exception("ERROR /menu/suggest")
+        return jsonify({"suggestions": []})

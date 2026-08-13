@@ -20,6 +20,8 @@ import logging
 import threading
 import webbrowser
 
+from sqlalchemy import inspect, text as sql_text
+
 from dotenv import load_dotenv  # audit §5.7 (python-dotenv already in requirements.txt)
 
 from flask import Flask, jsonify, send_from_directory, request
@@ -109,6 +111,27 @@ else:
 # §5.20b — graceful shutdown timer (None when idle, set when /shutdown is called)
 _shutdown_timer: "threading.Timer | None" = None
 
+# §16 — user-persisted settings (overrides env defaults, survives restarts)
+_SETTINGS_FILE = (
+    os.path.join(app.instance_path, "settings.json")
+    if os.path.exists(app.instance_path)
+    else None
+)
+
+
+def _apply_persisted_settings():
+    """Load settings.json from the instance dir and override app.config (§16)."""
+    global _SETTINGS_FILE
+    if _SETTINGS_FILE and os.path.isfile(_SETTINGS_FILE):
+        try:
+            with open(_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                persisted = json.load(f)
+            if "use_ollama" in persisted:
+                app.config["USE_OLLAMA"] = bool(persisted["use_ollama"])
+            logger.info("Loaded persisted settings: USE_OLLAMA=%s", app.config["USE_OLLAMA"])
+        except (OSError, json.JSONDecodeError, TypeError) as e:
+            logger.warning("Could not load settings.json: %s", e)
+
 
 # --- Health check (audit §4.4) -------------------------------------------
 @app.route("/health")
@@ -155,6 +178,15 @@ app.register_blueprint(data_bp)
 # --- Maintenance CLI commands (audit §5.5/§5.6/§8.1) ---------------------
 # fix-data / init-db are CLI-only now (no longer exposed over HTTP).
 register_cli(app)
+
+
+# --- Load persisted settings (§16) ------------------------------------------
+# Settings file (settings.json in the instance dir) overrides env-configured defaults.
+# This lets the frontend Ollama toggle survive app restarts.
+try:
+    _apply_persisted_settings()
+except Exception as e:
+    logger.warning("Could not load persisted settings: %s", e)
 
 
 # --- CSRF protection (audit §8.3 / §5.22) ---------------------------------
@@ -245,6 +277,24 @@ if __name__ == "__main__":
                 stamp("head")
             except (Exception, SystemExit):
                 pass
+
+        # §13a.2 — backfill: db.create_all() only creates tables that don't exist;
+        # it does NOT add columns to pre-existing tables. If the DB was created by an
+        # older exe version (before week_start was added to the model), explicitly
+        # add the column here so GET /menu/last doesn't 500 on legacy data.
+        try:
+            _tbl_cols = {c['name'] for c in inspect(db.engine).get_columns('weekly_menu')}
+            if 'week_start' not in _tbl_cols:
+                with db.engine.connect() as _conn:
+                    _conn.execute(sql_text("ALTER TABLE weekly_menu ADD COLUMN week_start VARCHAR(10)"))
+                    _conn.commit()
+                logger.info("Backfilled missing week_start column on legacy weekly_menu table.")
+                try:
+                    stamp("head")
+                except (Exception, SystemExit):
+                    pass
+        except Exception as _bf:
+            logger.warning("week_start backfill skipped: %s", _bf)
 
         # §13.22 — auto-import sample data on first launch (empty DB only)
         _auto_import_sample_data()

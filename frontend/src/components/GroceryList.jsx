@@ -8,7 +8,7 @@
 import { useState, useEffect } from "react";
 import { apiFetch } from "../api.js";
 
-export default function GroceryList({ grocery, onGenerate, savings: savingsProp, onSavingsChange }) {
+export default function GroceryList({ grocery, onGenerate, savings: savingsProp, onSavingsChange, ollamaEnabled, enhancedGrocery, onEnhance, enhancing }) {
   const [extras, setExtras] = useState(null);
   const [, setErr] = useState("");
   // §13.3b — savings comes from App.jsx (shared state) so snack/staple additions
@@ -97,103 +97,153 @@ export default function GroceryList({ grocery, onGenerate, savings: savingsProp,
       </button>
 
       {grocery && (
-        <>
-          {/* §13.23 — collapsible saved groceries at the top of the grocery list */}
-          {savings.length > 0 && (
-            <div style={{ marginTop: "15px" }}>
-              {[
-                { key: "snacks", label: "Snacks", items: snacks },
-                { key: "staples", label: "Staples", items: staples },
-              ].map(({ key, label, items }) =>
-                items.length > 0 ? (
-                  <div key={key} style={{ marginTop: "12px" }}>
-                    <div
-                      className="row-between"
-                      style={{ cursor: "pointer", marginBottom: "6px" }}
-                      onClick={() => toggleSection(key)}
-                    >
-                      <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                        🛒 Saved {label.toLowerCase()} ({items.length})
-                      </span>
-                      <span style={{ fontSize: "14px", color: "var(--text-muted)" }}>
-                        {expandedSections[key] ? "▴" : "▾"}
-                      </span>
-                    </div>
-                    {expandedSections[key] && (
-                      <div
-                        className="row-gap"
-                        style={{ gap: "6px", flexWrap: "wrap", alignItems: "center" }}
-                      >
-                        {items.map((s) => (
-                          <div
-                            key={s.id}
-                            className="row-gap"
-                            style={{ gap: "2px", alignItems: "center" }}
-                          >
-                            <button
-                              className="btn-sm"
-                              style={{
-                                background: "var(--bg-panel)",
-                                border: "1px solid var(--border)",
-                                borderRadius: "4px",
-                                padding: "4px 8px",
-                                fontSize: "13px",
-                                color: "var(--text-h)",
-                                cursor: "pointer",
-                              }}
-                              onClick={() => addFromCatalog(s.name)}
-                              title={`Add ${s.name} to this week's list`}
-                            >
-                              + {s.name}
-                            </button>
-                            <button
-                              className="btn-sm"
-                              style={{
-                                background: "transparent",
-                                border: "none",
-                                padding: 0,
-                                fontSize: "13px",
-                                color: "var(--text-muted)",
-                                cursor: "pointer",
-                              }}
-                              onClick={() => deleteSaving(s.id)}
-                              title={`Remove ${s.name} from saved groceries`}
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+      <>
+        {/* §13.23 — collapsible saved groceries at the top of the grocery list */}
+        {savings.length > 0 && (
+          <div style={{ marginTop: "15px" }}>
+            {[
+              { key: "snacks", label: "Snacks", items: snacks },
+              { key: "staples", label: "Staples", items: staples },
+            ].map(({ key, label, items }) =>
+              items.length > 0 ? (
+                <div key={key} style={{ marginTop: "12px" }}>
+                  <div
+                    className="row-between"
+                    style={{ cursor: "pointer", marginBottom: "6px" }}
+                    onClick={() => toggleSection(key)}
+                  >
+                    <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                      🛒 Saved {label.toLowerCase()} ({items.length})
+                    </span>
+                    <span style={{ fontSize: "14px", color: "var(--text-muted)" }}>
+                      {expandedSections[key] ? "▴" : "▾"}
+                    </span>
                   </div>
-                ) : null
-              )}
-            </div>
-          )}
+                  {expandedSections[key] && (
+                    <div
+                      className="row-gap"
+                      style={{ gap: "6px", flexWrap: "wrap", alignItems: "center" }}
+                    >
+                      {items.map((s) => (
+                        <div
+                          key={s.id}
+                          className="row-gap"
+                          style={{ gap: "2px", alignItems: "center" }}
+                        >
+                          <button
+                            className="btn-sm"
+                            style={{
+                              background: "var(--bg-panel)",
+                              border: "1px solid var(--border)",
+                              borderRadius: "4px",
+                              padding: "4px 8px",
+                              fontSize: "13px",
+                              color: "var(--text-h)",
+                              cursor: "pointer",
+                            }}
+                            onClick={() => addFromCatalog(s.name)}
+                            title={`Add ${s.name} to this week's list`}
+                          >
+                            + {s.name}
+                          </button>
+                          <button
+                            className="btn-sm"
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              padding: 0,
+                              fontSize: "13px",
+                              color: "var(--text-muted)",
+                              cursor: "pointer",
+                            }}
+                            onClick={() => deleteSaving(s.id)}
+                            title={`Remove ${s.name} from saved groceries`}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : null
+            )}
+          </div>
+        )}
 
-          {/* Export links */}
-          <div className="row-gap" style={{ marginTop: "12px", gap: "8px", flexWrap: "wrap" }}>
-            <a className="link-btn" href="/grocery/export?format=csv" download>
-              Download CSV
-            </a>
-            <span style={{ opacity: 0.5 }}>|</span>
-            <a className="link-btn" href="/grocery/export?format=text" download>
-              Download Text
-            </a>
-            <span style={{ opacity: 0.5 }}>|</span>
+        {/* Export links */}
+        <div className="row-gap" style={{ marginTop: "12px", gap: "8px", flexWrap: "wrap" }}>
+          <a className="link-btn" href="/grocery/export?format=csv" download>
+            Download CSV
+          </a>
+          <span style={{ opacity: 0.5 }}>|</span>
+          <a className="link-btn" href="/grocery/export?format=text" download>
+            Download Text
+          </a>
+          <span style={{ opacity: 0.5 }}>|</span>
+          <button
+            className="link-btn"
+            onClick={() => window.open(
+              `mailto:?subject=My%20Shopping%20List&body=${encodeURIComponent(textBody())}`,
+              "_blank"
+            )}
+          >
+            Email list
+          </button>
+          {/* §16.2 — AI-enhanced grocery list */}
+          {ollamaEnabled && (
+            <>
+              <span style={{ opacity: 0.5 }}>|</span>
+              <button
+                className="btn-sm"
+                style={{ fontSize: "13px" }}
+                onClick={onEnhance}
+                disabled={enhancing}
+                title="Reorganize into store layout + suggest missing items"
+              >
+                {enhancing ? "Enhancing…" : "🧠 Enhance"}
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* §16.2 — enhanced grocery list (if available, show alongside original) */}
+        {enhancedGrocery && (
+          <div style={{ marginTop: "15px" }}>
+            <h3 style={{ color: "var(--accent)", fontSize: "14px", marginBottom: "8px" }}>
+              🧠 AI-Optimized List
+            </h3>
+            <div className="grocery-scroll">
+              {Object.entries(enhancedGrocery).map(([category, items]) => (
+                <div key={category} style={{ marginBottom: "12px" }}>
+                  <h4 style={{ color: "var(--text-muted)", fontSize: "13px" }}>{category}</h4>
+                  <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                    {items.map((i) => (
+                      <li key={i.item} className="list-item" style={{ padding: "4px 0" }}>
+                        <span className="row-gap" style={{ gap: "6px" }}>
+                          <span>{i.item}</span>
+                          {i.qty && <span style={{ opacity: 0.6 }}>({i.qty})</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
             <button
-              className="link-btn"
-              onClick={() => window.open(
-                `mailto:?subject=My%20Shopping%20List&body=${encodeURIComponent(textBody())}`,
-                "_blank"
-              )}
+              className="btn-sm"
+              style={{ fontSize: "12px", marginTop: "8px" }}
+              onClick={() => onGenerate()}
+              title="Replace original list with the AI-enhanced version"
             >
-              Email list
+              Use This
             </button>
           </div>
+        )}
 
-          {/* §13.3 — categorized items with checkboxes */}
-          <div style={{ marginTop: "15px" }}>
+        {/* §16.2 — scrollable categorized items with checkboxes */}
+        <div style={{ marginTop: "15px" }}>
+          <div className="grocery-scroll">
             {Object.entries(grocery).map(([category, items]) => (
               <div key={category} style={{ marginBottom: "15px" }}>
                 <h3 style={{ color: "var(--text-muted)" }}>{category}</h3>
@@ -223,7 +273,8 @@ export default function GroceryList({ grocery, onGenerate, savings: savingsProp,
               </div>
             ))}
           </div>
-        </>
+        </div>
+      </>
 
       )}
     </div>

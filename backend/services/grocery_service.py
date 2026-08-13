@@ -4,10 +4,13 @@ Ports the aggregation/quantity-parsing/categorisation that lived inline in the
 `GET /grocery` route. Pure DB reads here; the route just calls `build_grocery_list()`.
 """
 
+import json
 import re
 from typing import Any, Dict, List, Tuple, Union
 
+from flask import current_app
 from models import Meal, WeeklyMenu, db
+from services.llm_service import call_ollama, parse_json_list
 from utils import (
     INGREDIENT_MAP,
     parse_quantity,
@@ -206,3 +209,119 @@ def toggle_purchased(item: str) -> Union[Dict[str, bool], Tuple[Dict[str, str], 
     last_menu.purchased = current
     db.session.commit()
     return {"item": norm, "purchased": state}
+
+
+# §16.2 — store-layout category ordering (produce → meat → dairy → pantry → frozen → snacks → other)
+_STORE_LAYOUT_ORDER: List[str] = [
+    "Produce",
+    "Protein",
+    "Dairy",
+    "Grains",
+    "Snacks",
+    "Other",
+]
+
+
+def _reorder_categories(grocery: Dict[str, List[Dict[str, Any]]]) -> Dict[str, List[Dict[str, Any]]]:
+    """Reorder grocery dict keys to match a typical store layout (audit §16.2)."""
+    ordered: Dict[str, List[Dict[str, Any]]] = {}
+    ordered.update({k: grocery[k] for k in _STORE_LAYOUT_ORDER if k in grocery})
+    for k in grocery:
+        if k not in _STORE_LAYOUT_ORDER:
+            ordered[k] = grocery[k]
+    return ordered
+
+
+def enhance_grocery_list() -> Union[Dict[str, Any], Tuple[Dict[str, str], int]]:
+    """Build a grocery list, optionally enhanced by Ollama (§16.2).
+
+    Runs the fast rule-based ``build_grocery_list()`` first.  If ``USE_OLLAMA`` is
+    enabled, sends the list + week's meals to Ollama to (a) reorder categories
+    into store-layout order and (b) suggest missing items.  On any Ollama error
+    or timeout, returns the rule-based list unchanged.
+    """
+    result = build_grocery_list()
+    if isinstance(result, tuple):
+        return result  # propagate error: {"error": "Generate a menu first"}, 400
+
+    if not current_app.config.get("USE_OLLAMA", False):
+        return _reorder_categories(result)
+
+    # gather week's meal ingredients for context
+    last_menu = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).first()
+    meal_ingredients: List[List[str]] = []
+    if last_menu:
+        for day, val in (last_menu.meals or {}).items():
+            if isinstance(val, dict):
+                meal = val
+            elif isinstance(val, int):
+                m = db.session.get(Meal, val)
+                meal = m.to_dict() if m else {"ingredients": []}
+            else:
+                meal = {"ingredients": []}
+            meal_ingredients.append(meal.get("ingredients") or [])
+
+    # build a compact JSON-ish representation for the prompt
+    list_text = json.dumps(
+        {cat: [i["item"] for i in items] for cat, items in result.items()},
+        indent=2,
+    )
+    meals_text = json.dumps(meal_ingredients, indent=2)
+    prompt = (
+        f"Here is a categorized grocery list with quantities (JSON, "
+        f"{{category: [item strings]}}):\n{list_text}\n\n"
+        f"Here are this week's planned meals' ingredients (JSON array):\n{meals_text}\n\n"
+        f"Reorganize the categories into optimal store-layout order "
+        f"(produce -> protein/meat -> dairy -> grains -> snacks -> other) and "
+        f"suggest any ingredients that are missing based on the meals. If you suggest "
+        f"new items, append them to the most appropriate existing category. "
+        f"Return ONLY valid JSON in the same format: "
+        f'{{"Produce": ["item1", "item2"], ...}}. '
+        f"Keep the item names as-is (no quantities needed). Do not add commentary."
+    )
+
+    ollama_text = call_ollama(prompt, timeout=current_app.config.get("OLLAMA_TIMEOUT", 15))
+
+    if ollama_text is None:
+        return _reorder_categories(result)
+
+    parsed = parse_json_list(ollama_text)
+    # parse_json_list returns None for non-list; but we expect a dict here.
+    # Re-parse as a dict if needed.
+    if parsed is None:
+        try:
+            cleaned = ollama_text.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.strip("`")
+                cleaned = cleaned.strip()
+                if cleaned.startswith("json"):
+                    cleaned = cleaned[4:].strip()
+            parsed = json.loads(cleaned)
+        except (json.JSONDecodeError, ValueError):
+            parsed = None
+
+    if not isinstance(parsed, dict):
+        return _reorder_categories(result)
+
+    # merge: keep rule-based item list, reorder, append AI-suggested new items
+    merged: Dict[str, List[Dict[str, str]]] = {}
+    for cat, items in parsed.items():
+        if cat not in result:
+            # brand-new category from Ollama — create it
+            merged[cat] = []
+        else:
+            # preserve rule-based display (item, qty, purchased)
+            merged[cat] = list(result[cat])
+        for suggested in items:
+            if not suggested:
+                continue
+            existing_names = {i["item"].lower() for i in merged[cat]}
+            if suggested.lower() not in existing_names:
+                merged[cat].append({"item": suggested.title(), "qty": "1", "purchased": False})
+
+    # append any rules-based categories not touched by Ollama
+    for cat, items in result.items():
+        if cat not in merged:
+            merged[cat] = list(items)
+
+    return _reorder_categories(merged)

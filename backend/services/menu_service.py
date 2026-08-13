@@ -4,11 +4,15 @@ Kept free of Flask request/session coupling so it can be unit-tested in isolatio
 All DB writes happen inside Flask request context (routes call these helpers).
 """
 
+import json
+import logging
 import random
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from models import Meal, WeeklyMenu, UsedMeal, db
+from flask import current_app
+from models import Meal, SavedGrocery, WeeklyMenu, UsedMeal, db
+from services.llm_service import call_ollama, parse_json_list
 from utils import fast_food_spots
 
 _DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -147,7 +151,12 @@ def get_last_week_menu() -> Optional[Dict[str, Any]]:
     if not last_menu:
         return None
 
-    if last_menu.week_start != current_monday:
+    # §13a.2 — safely access week_start (legacy DBs may not have the column yet;
+    # the backfill in app.py adds it on first run, but guard defensively anyway)
+    try:
+        if last_menu.week_start != current_monday:
+            return None
+    except Exception:
         return None
 
     return expand_menu(last_menu.meals)
@@ -207,3 +216,67 @@ def set_menu_day(
     if isinstance(meal_dict, dict):
         return {"day": day, "meal": meal_dict}
     return {"day": day, "meal": {"id": meal_id, "name": None, "ingredients": []}}
+
+
+# §16.4 — AI meal suggestion via local Ollama
+logger = logging.getLogger(__name__)
+
+
+def suggest_meals(preferences: str = "") -> List[Dict[str, Any]]:
+    """Generate AI meal suggestions using the local Ollama daemon (§16.4).
+
+    Sends the user's existing meal names + saved groceries + optional preferences
+    to Ollama, which returns up to 3 new dinner ideas with name, ingredients,
+    and a brief recipe.  Returns an empty list when Ollama is disabled or
+    unreachable (so the frontend shows the "enable Ollama" tooltip).
+    """
+    if not current_app.config.get("USE_OLLAMA", False):
+        return []
+
+    existing_names = [m.name for m in Meal.query.all() if m.name]
+    saved_names = [s.name for s in SavedGrocery.query.all() if s.name]
+
+    context = {
+        "existing_meals": existing_names,
+        "saved_groceries": saved_names,
+    }
+    if preferences:
+        context["user_preferences"] = preferences
+
+    prompt = (
+        f"Generate 3 new dinner recipe ideas based on these existing meals: "
+        f"{json.dumps(existing_names)}.\n"
+        f"Saved grocery items to consider: {json.dumps(saved_names)}.\n"
+        f"{'User preferences: ' + preferences if preferences else ''}\n\n"
+        f"Each suggestion should include a name, a list of ingredients, and a brief "
+        f"1-2 sentence cooking instruction. Return ONLY valid JSON:\n"
+        f'[{"name": "Meal A", "ingredients": ["ing1", "ing2"], "recipe": "Cook ing1 with ing2."}, ...]\n'
+        f"Do not add commentary or markdown."
+    )
+
+    ollama_text = call_ollama(prompt, timeout=current_app.config.get("OLLAMA_TIMEOUT", 15))
+    if ollama_text is None:
+        return []
+
+    parsed = parse_json_list(ollama_text)
+    if not parsed:
+        return []
+
+    suggestions: List[Dict[str, Any]] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name", "").strip()
+        ingredients = item.get("ingredients", [])
+        recipe = item.get("recipe", "").strip()
+        if not name:
+            continue
+        if isinstance(ingredients, str):
+            ingredients = [ingredients]
+        if not isinstance(ingredients, list):
+            ingredients = []
+        if not recipe:
+            recipe = item.get("instructions", "")
+        suggestions.append({"name": name, "ingredients": ingredients, "recipe": recipe})
+
+    return suggestions[:3]

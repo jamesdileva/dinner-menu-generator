@@ -1,18 +1,25 @@
 """Nutrition macro insight service (audit B2).
 
-Presence-based (v1) analysis, local-first — no network. For the last few saved
+Presence-based (v1) analysis, local-first — no network.  For the last few saved
 weekly menus, each meal's ingredients are looked up in ``nutrition_rules.json``
 (macro themes: protein / veg / dairy / carbs / fiber / healthy_fat). Ingredients
 not in the file are omitted (graceful, never an error). The aggregate is compared
 to per-week targets to surface deficiency flags + rule-based swap suggestions.
 
-Pure DB reads / no writes. Read via ``GET /insights`` (routes/menu.py).
+§16.3 — When ``USE_OLLAMA`` is enabled, the rule-based result is sent to the local
+Ollama daemon to produce more nuanced, meal-specific guidance.  On any Ollama error
+the rule-based result is returned unchanged.
+
+Pure DB reads / no writes.  Read via ``GET /insights`` (routes/menu.py).
 """
 
+import json
 import logging
 from typing import Any, Dict, List, Tuple, Union
 
+from flask import current_app
 from models import WeeklyMenu
+from services.llm_service import call_ollama
 from services.menu_service import expand_menu
 from utils import sanitize_text, load_nutrition_rules
 
@@ -126,3 +133,54 @@ def _suggest(
     if not suggestions and not flag_set:
         suggestions.append("Looks balanced — keep it up!")
     return suggestions
+
+
+def enhanced_insights() -> Union[Dict[str, Any], Tuple[Dict[str, str], int]]:
+    """Run rule-based ``insights()`` then optionally enhance via Ollama (§16.3).
+
+    On any Ollama error or timeout, returns the rule-based result unchanged.
+    When ``USE_OLLAMA`` is disabled in config, returns the rule-based result
+    with an extra ``ai_suggestions: null`` field so the frontend can show the
+    "Enhance with AI" button.
+    """
+    base = insights()
+    if isinstance(base, tuple):
+        return base  # propagate error: {"error": "Generate a menu first"}, 400
+
+    if not current_app.config.get("USE_OLLAMA", False):
+        base["ai_suggestions"] = None
+        return base
+
+    # gather raw weekly menu meals for context
+    menus = WeeklyMenu.query.order_by(WeeklyMenu.id.desc()).limit(_WINDOW).all()
+    meals_context = []
+    for menu in menus:
+        expanded = expand_menu(menu.meals) or {}
+        for day, meal in expanded.items():
+            if isinstance(meal, dict) and meal.get("name"):
+                meals_context.append(
+                    {"day": day, "name": meal["name"], "ingredients": meal.get("ingredients", [])}
+                )
+
+    prompt = (
+        f"Here is this week's planned menu and a rule-based nutrition analysis.\n\n"
+        f"Macro totals: {json.dumps(base.get('totals', {}))}\n"
+        f"Weekly targets: {json.dumps(base.get('weekly_targets', {}))}\n"
+        f"Deficiency flags: {json.dumps(base.get('flags', []))}\n"
+        f"Rule-based suggestions: {json.dumps(base.get('suggestions', []))}\n\n"
+        f"This week's meals: {json.dumps(meals_context)}\n\n"
+        f"Provide 2-3 more specific improvement suggestions. For each, reference a "
+        f"specific meal from this week's plan and suggest a concrete ingredient swap, "
+        f"additional side dish, or meal modification to address the flagged deficiencies. "
+        f"Return each suggestion as a single line of text, no markdown headers, no numbering."
+    )
+
+    ollama_text = call_ollama(prompt, timeout=current_app.config.get("OLLAMA_TIMEOUT", 15))
+    if ollama_text is None:
+        base["ai_suggestions"] = None
+        return base
+
+    # split into lines, filter blanks
+    ai_lines = [line.strip() for line in ollama_text.split("\n") if line.strip()]
+    base["ai_suggestions"] = ai_lines if ai_lines else None
+    return base

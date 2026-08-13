@@ -21,3 +21,12 @@ class Config:
     # --- Upload limits (audit §4.6) ---
     MAX_UPLOAD_BYTES: int = 5 * 1024 * 1024  # 5 MB
     MAX_IMAGE_DIMENSION: int = 4000  # px, either side
+
+    # --- Ollama / local LLM integration (§16) ---
+    # Optional enhancement layer: when enabled the app calls the locally-running
+    # Ollama daemon (http://localhost:11434) to enhance grocery lists, nutrition
+    # insights, and generate meal suggestions.  All traffic is 100 % local.
+    USE_OLLAMA: bool = os.environ.get("OLLAMA_ENABLED", "false").lower() in ("1", "true", "yes")
+    OLLAMA_MODEL: str = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
+    OLLAMA_URL: str = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
+    OLLAMA_TIMEOUT: int = int(os.environ.get("OLLAMA_TIMEOUT", "15"))

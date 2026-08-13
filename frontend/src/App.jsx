@@ -5,6 +5,7 @@ import GroceryList from "./components/GroceryList.jsx";
 import ManageMeals from "./components/ManageMeals.jsx";
 import QuickPickBadge from "./components/QuickPickBadge.jsx";
 import Modal from "./components/Modal.jsx";
+import SuggestMealModal from "./components/SuggestMealModal.jsx";
 import History from "./components/History.jsx";
 import Calendar from "./components/Calendar.jsx";
 import Insights from "./components/Insights.jsx";
@@ -68,6 +69,17 @@ export default function App() {
   const [addGroceryModalOpen, setAddGroceryModalOpen] = useState(false);
   const [addGroceryGroup, setAddGroceryGroup] = useState("snacks");
   const [addGroceryName, setAddGroceryName] = useState("");
+
+  // §16 — Ollama / local LLM settings + AI feature state
+  const [ollamaEnabled, setOllamaEnabled] = useState(() => {
+    const saved = localStorage.getItem("ollamaEnabled");
+    return saved === "true";
+  });
+  const [settings, setSettings] = useState(null);
+  const [aiSuggestions, setAiSuggestions] = useState(null);
+  const [suggestMealModalOpen, setSuggestMealModalOpen] = useState(false);
+  const [enhancingGrocery, setEnhancingGrocery] = useState(false);
+  const [enhancedGrocery, setEnhancedGrocery] = useState(null);
 
   async function withLoading(fn) {
     setError(null);
@@ -172,6 +184,60 @@ export default function App() {
       .then(() => loadSavings())
       .catch(() => {});
   };
+
+  // §16 — settings + AI handlers
+  const loadSettings = () =>
+    apiFetch("/settings")
+      .then((r) => setSettings(r))
+      .catch(() => setSettings(null));
+
+  const toggleOllama = () => {
+    const next = !ollamaEnabled;
+    setOllamaEnabled(next);
+    localStorage.setItem("ollamaEnabled", String(next));
+    apiFetch("/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ use_ollama: next }),
+    }).catch(() => {});
+  };
+
+  const enhanceGrocery = () =>
+    withLoading(async () => {
+      setEnhancingGrocery(true);
+      try {
+        const r = await apiFetch("/grocery/enhance");
+        setEnhancedGrocery(r);
+      } catch (e) {
+        setError(e.message);
+      } finally {
+        setEnhancingGrocery(false);
+      }
+    });
+
+  const loadAiSuggestions = () =>
+    withLoading(async () => {
+      const prefs = "";
+      const r = await apiFetch(`/menu/suggest${prefs ? `?preferences=${encodeURIComponent(prefs)}` : ""}`);
+      setAiSuggestions(r.suggestions || []);
+    });
+
+  // §16.4 — save AI-suggested meal to the database
+  const saveAiMeal = (suggestion) =>
+    withLoading(async () => {
+      await apiFetch("/meal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: suggestion.name,
+          ingredients: suggestion.ingredients,
+          category: "AI Suggested",
+        }),
+      });
+      setSuggestMealModalOpen(false);
+      setAiSuggestions(null);
+      loadMeals(1, mealCategory, search);
+    });
 
   const rerollDay = async (day) => {
     const prevMeal = menu?.[day] ?? null;
@@ -364,6 +430,8 @@ export default function App() {
     // §13a.2 — resume last week's menu if present, then load the grocery list
     loadMenu();
     loadGrocery();
+    // §16 — fetch Ollama settings
+    loadSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -405,15 +473,43 @@ export default function App() {
             onPickTakeout={getTakeout}
             result={quickPickResult}
           />
+          <button
+            className="btn-sm"
+            style={{ padding: "4px 10px", fontSize: "13px" }}
+            onClick={() => setSuggestMealModalOpen(true)}
+            title="AI suggests a meal (requires Ollama)"
+          >
+            💡 Suggest Meal
+          </button>
         </div>
-        <button
-          className="btn-sm"
-          style={{ padding: "4px 10px", fontSize: "13px" }}
-          onClick={toggleTheme}
-          title="Toggle dark / light"
-        >
-          {document.getElementById("root")?.getAttribute("data-theme") === "dark" ? "☀️ Light" : "🌙 Dark"}
-        </button>
+        <div className="row-gap" style={{ gap: "8px" }}>
+          <button
+            className="btn-sm"
+            style={{
+              padding: "4px 10px",
+              fontSize: "13px",
+              background: ollamaEnabled ? "var(--accent)" : "var(--bg-panel)",
+              color: ollamaEnabled ? "#fff" : "var(--text-muted)",
+            }}
+            onClick={toggleOllama}
+            title={
+              ollamaEnabled
+                ? settings?.ollama_available
+                  ? `AI enabled (model: ${settings?.ollama_model || "llama3.1:8b"})`
+                  : "AI enabled but Ollama not running"
+                : "AI features OFF"
+            }
+          >
+            {ollamaEnabled ? "🧠 AI On" : "🧠 AI Off"}
+          </button>
+          <button
+            className="btn-sm"
+            style={{ padding: "4px 10px", fontSize: "13px" }}
+            onClick={toggleTheme}
+            title="Toggle dark / light"
+          >
+            {document.getElementById("root")?.getAttribute("data-theme") === "dark" ? "☀️ Light" : "🌙 Dark"}
+          </button>
       </div>
 
       {error && (
@@ -474,7 +570,16 @@ export default function App() {
       {/* Weekly Menu + Grocery List (side-by-side on desktop, stacked on mobile) */}
       <div className="main-grid">
         <Menu menu={menu} onGenerate={loadMenu} onReroll={rerollDay} />
-        <GroceryList grocery={grocery} onGenerate={loadGrocery} savings={savings} onSavingsChange={loadSavings} />
+        <GroceryList
+          grocery={grocery}
+          onGenerate={loadGrocery}
+          savings={savings}
+          onSavingsChange={loadSavings}
+          ollamaEnabled={ollamaEnabled}
+          enhancedGrocery={enhancedGrocery}
+          onEnhance={enhanceGrocery}
+          enhancing={enhancingGrocery}
+        />
       </div>
 
       {/* Past Menus + Insights (secondary, side-by-side on desktop) */}
@@ -520,7 +625,23 @@ export default function App() {
         </div>
 
         {/* Insights */}
-        <Insights data={insights} onGenerate={loadInsights} />
+        <Insights
+          data={insights}
+          onGenerate={loadInsights}
+          ollamaEnabled={ollamaEnabled}
+        />
+      </div>
+
+      {/* §16.4 — AI meal suggestion modal */}
+      <SuggestMealModal
+        open={suggestMealModalOpen}
+        onClose={() => setSuggestMealModalOpen(false)}
+        suggestions={aiSuggestions}
+        onSuggest={loadAiSuggestions}
+        loading={loading}
+        onSave={saveAiMeal}
+        ollamaEnabled={ollamaEnabled}
+      />
       </div>
 
       {/* Add Meal Modal (§13.21) */}

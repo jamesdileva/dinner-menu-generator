@@ -477,6 +477,13 @@ h2 {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
+/* §16.2 — scrollable grocery list (grows long, keeps card height reasonable) */
+.grocery-scroll {
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 /* ============= Mobile / responsive breakpoints (§13.14) ============= */
 
 /* 1024px — tablets, small laptop screens */

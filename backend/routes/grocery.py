@@ -23,6 +23,7 @@ from models import SavedGrocery, db
 from utils import sanitize_text, categorize_ingredient
 from services.grocery_service import (
     build_grocery_list,
+    enhance_grocery_list,
     get_extras,
     set_extras,
     get_purchased,
@@ -44,6 +45,23 @@ def grocery() -> Response:
         return jsonify(result)
     except Exception:
         logger.exception("ERROR /grocery")
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@grocery_bp.route("/grocery/enhance", methods=["GET"])
+def grocery_enhance() -> Response:
+    """§16.2 — optionally AI-enhanced grocery list (store-layout order + missing items).
+
+    Falls back to rule-based categorised list when Ollama is disabled or unreachable.
+    """
+    try:
+        result = enhance_grocery_list()
+        if isinstance(result, tuple):
+            error, status = result
+            return jsonify(error), status
+        return jsonify(result)
+    except Exception:
+        logger.exception("ERROR /grocery/enhance")
         return jsonify({"error": "Internal server error"}), 500
 
 

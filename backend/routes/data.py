@@ -19,7 +19,7 @@ import logging
 
 from typing import Any, Dict, List, Tuple
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 from flask.wrappers import Response
 
 from models import Meal, WeeklyMenu, db
@@ -28,6 +28,57 @@ from utils import sanitize_text, sanitize_ingredients, normalize_ingredients
 
 data_bp = Blueprint("data_bp", __name__)
 logger = logging.getLogger(__name__)
+
+
+@data_bp.route("/settings", methods=["GET"])
+def settings() -> Response:
+    """§16 — return current Ollama/AI settings the frontend can use to enable/disable features."""
+    return jsonify(
+        {
+            "ollama_enabled": bool(current_app.config.get("USE_OLLAMA", False)),
+            "ollama_model": current_app.config.get("OLLAMA_MODEL", "llama3.1:8b"),
+            "ollama_available": _check_ollama_available(),
+        }
+    )
+
+
+def _check_ollama_available() -> bool:
+    """Probe the local Ollama daemon to see if it's reachable (§16)."""
+    try:
+        import httpx
+        from flask import current_app
+        url = current_app.config.get("OLLAMA_URL", "http://localhost:11434/api/generate")
+        # Ollama has a /api/tags endpoint that's a lightweight health probe
+        base = url.replace("/api/generate", "/api/tags")
+        resp = httpx.GET(base, timeout=httpx.Timeout(3))
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
+@data_bp.route("/settings", methods=["POST"])
+def save_settings() -> Response:
+    """§16 — persist user settings (currently just ``use_ollama``) to settings.json."""
+    data = request.get_json(silent=True) or {}
+    if "use_ollama" in data:
+        setting_val = bool(data["use_ollama"])
+        current_app.config["USE_OLLAMA"] = setting_val
+        # persist to settings.json in the instance dir
+        settings_path = os.path.join(current_app.instance_path, "settings.json")
+        try:
+            os.makedirs(current_app.instance_path, exist_ok=True)
+            with open(settings_path, "w", encoding="utf-8") as f:
+                json.dump({"use_ollama": setting_val}, f)
+            logger.info("Persisted setting USE_OLLAMA=%s to %s", setting_val, settings_path)
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning("Could not persist settings.json: %s", e)
+    return jsonify(
+        {
+            "ollama_enabled": bool(current_app.config.get("USE_OLLAMA", False)),
+            "ollama_model": current_app.config.get("OLLAMA_MODEL", "llama3.1:8b"),
+            "ollama_available": _check_ollama_available(),
+        }
+    )
 
 
 def _split_payload(data: Any) -> Tuple[List[Dict[str, Any]], List[Any]]:

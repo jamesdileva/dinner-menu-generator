@@ -348,3 +348,97 @@ def test_menu_last_resumes_current_week(client):
     monday_meal = r1.get_json()["menu"]["Mon"]
     assert monday_meal["name"].startswith("Meal")
 
+
+# §16 — Ollama / local LLM integration tests
+
+
+def test_settings_endpoint(client):
+    # §16 — /settings returns the current Ollama config shape.
+    r = client.get("/settings")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert "ollama_enabled" in data
+    assert "ollama_model" in data
+    assert "ollama_available" in data
+    assert isinstance(data["ollama_available"], bool)
+
+
+def test_settings_post_toggles_ollama(client, app):
+    # §16 — POST /settings toggles USE_OLLAMA in runtime config.
+    assert app.config["USE_OLLAMA"] is False  # env default is false
+
+    r = client.post("/settings", json={"use_ollama": True}, headers=HDR)
+    assert r.status_code == 200
+    assert app.config["USE_OLLAMA"] is True
+
+    r2 = client.get("/settings")
+    assert r2.get_json()["ollama_enabled"] is True
+
+    # turn it back off
+    client.post("/settings", json={"use_ollama": False}, headers=HDR)
+    assert app.config["USE_OLLAMA"] is False
+
+
+def test_grocery_enhance_off_returns_rule_based(client, app):
+    # §16.2 — with USE_OLLAMA=False, /grocery/enhance matches /grocery output (reordered).
+    for i in range(7):
+        _add(client, f"Meal {i}", ["rice", "chicken"])
+    client.get("/menu/week")
+
+    baseline = client.get("/grocery").get_json()
+    enhanced = client.get("/grocery/enhance").get_json()
+
+    # both should have the same item counts (just reordered)
+    assert set(enhanced.keys()) == set(baseline.keys())
+    for cat in baseline:
+        expected = {i["item"].lower() for i in baseline[cat]}
+        actual = {i["item"].lower() for i in enhanced[cat]}
+        assert expected == actual, f"Mismatch in {cat}: {expected} vs {actual}"
+
+
+def test_grocery_enhance_works_without_menu(client):
+    # §16.2 — no menu yet → 400 error, not 500.
+    r = client.get("/grocery/enhance")
+    assert r.status_code == 400
+    assert r.get_json() == {"error": "Generate a menu first"}
+
+
+def test_menu_suggest_off_returns_empty(client):
+    # §16.4 — with USE_OLLAMA=False, /menu/suggest returns empty list.
+    for i in range(7):
+        _add(client, f"Meal {i}", ["rice", "chicken"])
+    r = client.get("/menu/suggest")
+    assert r.status_code == 200
+    assert r.get_json() == {"suggestions": []}
+
+
+def test_insights_ai_suggestions_null_when_disabled(client, app):
+    # §16.3 — when Ollama disabled, /insights returns ai_suggestions=null.
+    for i in range(7):
+        _add(client, f"Steak {i}", ["beef", "potato", "broccoli"])
+    client.get("/menu/week")
+    client.get("/menu/week")
+
+    r = client.get("/insights")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["ai_suggestions"] is None
+
+
+def test_ollama_service_returns_none_offline(client, app):
+    # §16 — call_ollama() returns None when Ollama daemon is not running.
+    app.config["USE_OLLAMA"] = True
+    from services.llm_service import call_ollama
+    with app.app_context():
+        result = call_ollama("hello", timeout=2)
+    assert result is None  # daemon not running in test env → None → graceful fallback
+
+
+def test_ollama_service_returns_none_when_disabled(client, app):
+    # §16 — call_ollama() returns None immediately when USE_OLLAMA is False.
+    app.config["USE_OLLAMA"] = False
+    from services.llm_service import call_ollama
+    with app.app_context():
+        result = call_ollama("hello", timeout=2)
+    assert result is None
+
