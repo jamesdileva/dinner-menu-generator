@@ -465,16 +465,30 @@ h2 {
 
 /* §13.21b — sticky header keeps badge buttons visible on scroll */
 .app-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
   padding-bottom: 10px;
   position: sticky;
   top: 0;
   z-index: 10;
   background: var(--bg);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  margin-bottom: 8px;
+}
+
+/* Row 1: title (left) + toggles (right) — always fits on one line */
+.header-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Row 2: action buttons (Add Meal, Add Snack, Add Staple, Quick Pick, Suggest Meal)
+   Wraps to the next line on narrow screens — never overflows the container. */
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 /* §16.2 — scrollable grocery list (grows long, keeps card height reasonable) */
@@ -563,7 +577,7 @@ h2 {
   }
 }
 
-/* 600px — phones (stack main-grid + secondary-grid to 1 column) */
+  /* 600px — phones (stack main-grid + secondary-grid to 1 column) */
 @media (max-width: 600px) {
   .main-grid,
   .secondary-grid {
@@ -572,10 +586,21 @@ h2 {
   .app-header {
     gap: 6px;
   }
-  .app-header h1 {
+  .header-title-row h1 {
     font-size: 26px;
   }
   .app-header .btn-sm {
+    padding: 3px 6px;
+    font-size: 11px;
+  }
+  .header-actions {
+    gap: 6px;
+  }
+  .header-actions .btn-sm {
+    padding: 3px 6px;
+    font-size: 11px;
+  }
+  .header-actions .btn {
     padding: 3px 6px;
     font-size: 11px;
   }

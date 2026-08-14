@@ -442,8 +442,42 @@ export default function App() {
     <div className="app-shell">
       {/* Header with badge buttons (§13.21b — sticky on scroll) */}
       <div className="app-header">
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        {/* Row 1: title (left) + toggles (right) */}
+        <div className="header-title-row">
           <h1 style={{ margin: 0 }}>Dinner Planner</h1>
+          <div className="row-gap" style={{ gap: "8px" }}>
+            <button
+              className="btn-sm"
+              style={{
+                padding: "4px 10px",
+                fontSize: "13px",
+                background: ollamaEnabled ? "var(--accent)" : "var(--bg-panel)",
+                color: ollamaEnabled ? "#fff" : "var(--text-muted)",
+              }}
+              onClick={toggleOllama}
+              title={
+                ollamaEnabled
+                  ? settings?.ollama_available
+                    ? `AI enabled (model: ${settings?.ollama_model || "llama3.1:8b"})`
+                    : "AI enabled but Ollama not running"
+                  : "AI features OFF"
+              }
+            >
+              {ollamaEnabled ? "🧠 AI On" : "🧠 AI Off"}
+            </button>
+            <button
+              className="btn-sm"
+              style={{ padding: "4px 10px", fontSize: "13px" }}
+              onClick={toggleTheme}
+              title="Toggle dark / light"
+            >
+              {document.getElementById("root")?.getAttribute("data-theme") === "dark" ? "☀️ Light" : "🌙 Dark"}
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2: action buttons (wraps on narrow screens) */}
+        <div className="header-actions">
           <button
             className="btn-sm"
             style={{ padding: "4px 10px", fontSize: "13px" }}
@@ -482,36 +516,7 @@ export default function App() {
             💡 Suggest Meal
           </button>
         </div>
-        <div className="row-gap" style={{ gap: "8px" }}>
-          <button
-            className="btn-sm"
-            style={{
-              padding: "4px 10px",
-              fontSize: "13px",
-              background: ollamaEnabled ? "var(--accent)" : "var(--bg-panel)",
-              color: ollamaEnabled ? "#fff" : "var(--text-muted)",
-            }}
-            onClick={toggleOllama}
-            title={
-              ollamaEnabled
-                ? settings?.ollama_available
-                  ? `AI enabled (model: ${settings?.ollama_model || "llama3.1:8b"})`
-                  : "AI enabled but Ollama not running"
-                : "AI features OFF"
-            }
-          >
-            {ollamaEnabled ? "🧠 AI On" : "🧠 AI Off"}
-          </button>
-          <button
-            className="btn-sm"
-            style={{ padding: "4px 10px", fontSize: "13px" }}
-            onClick={toggleTheme}
-            title="Toggle dark / light"
-          >
-            {document.getElementById("root")?.getAttribute("data-theme") === "dark" ? "☀️ Light" : "🌙 Dark"}
-          </button>
       </div>
-
       {error && (
         <div className="error-banner">
           <span>{error}</span>
@@ -642,7 +647,6 @@ export default function App() {
         onSave={saveAiMeal}
         ollamaEnabled={ollamaEnabled}
       />
-      </div>
 
       {/* Add Meal Modal (§13.21) */}
       <Modal
