@@ -33,17 +33,19 @@ dinner-menu-generator/
 │   ├── utils.py           # Pure helpers + constants (ingredient normalization, OCR helpers)
 │   ├── routes/
 │   │   ├── meals.py       # Meal CRUD + /upload-menu (OCR import)
-│   │   ├── menu.py        # /menu/today, /takeout, /decide, /week, /reroll/<day>
-│   │   ├── grocery.py     # /grocery
-│   │   └── data.py        # /export, /import, /import-file, /fix-data, /init-db
+│   │   ├── menu.py        # /menu/today, /takeout, /decide, /week, /last, /suggest, /reroll/<day>, /insights
+│   │   ├── grocery.py     # /grocery, /grocery/enhance, /grocery/extras, /grocery/purchased, /savings
+│   │   └── data.py        # /export, /import, /import-file, /settings
 │   └── services/
-│       ├── menu_service.py      # Menu generation + daily-pick logic
-│       └── grocery_service.py   # Grocery-list aggregation/categorisation
+│       ├── menu_service.py      # Menu generation + daily-pick logic + AI suggestions (§16.4)
+│       ├── grocery_service.py   # Grocery-list aggregation/categorisation + AI enhance (§16.2)
+│       ├── nutrition_service.py # Macro insight analysis + AI enhance (§16.3)
+│       └── llm_service.py       # Local Ollama helper: call_ollama() + parse_json_list() (§16)
 ├── frontend/
 │   └── src/
 │       ├── api.js         # Shared apiFetch + MEALS_PER_PAGE
 │       ├── App.jsx        # Component orchestrator (state + layout)
-│       └── components/    # Menu, GroceryList, AddMeal
+│       └── components/    # Menu, GroceryList, ManageMeals, Insights, SuggestMealModal, ...
 ├── requirements.txt
 ├── example.env
 ├── README.md
@@ -171,6 +173,8 @@ take 10+ minutes and produce a 300+ MB binary.
 | GET    | `/menu/decide`      | Random choice: home or takeout                      |
 | POST   | `/menu/reroll/:day` | Reroll a specific day in the last weekly menu       |
 | GET    | `/menu/week`        | Generate a 7-day weekly menu (no internal repeats)  |
+| GET    | `/menu/last`        | Current week's menu if one exists, else null (§13a.2) |
+| GET    | `/menu/suggest`     | AI meal suggestions via local Ollama (§16.4)        |
 | PUT    | `/menu/:day`        | Set the meal for a day in the last weekly menu (undo)|
 | GET    | `/meals`            | List all meals (sorted by name)                     |
 | GET    | `/meals/categories` | Distinct, non-null meal categories (§5.14)          |
@@ -179,6 +183,7 @@ take 10+ minutes and produce a 300+ MB binary.
 | DEL    | `/meal/:id`         | Delete a meal by ID                                 |
 | POST   | `/upload-menu`      | Upload an image for OCR meal import                 |
 | GET    | `/grocery`          | Generate a categorized grocery list from last menu  |
+| GET    | `/grocery/enhance`  | AI-enhanced grocery list via local Ollama (§16.2)   |
 | GET    | `/grocery/export`   | Download last grocery list as CSV (default) or text |
 | GET,PUT| `/grocery/extras`   | Get/replace user-added shopping items on the last menu (B3a) |
 | GET    | `/grocery/purchased`   | List checked-off grocery items (§13.3)                    |
@@ -192,6 +197,7 @@ take 10+ minutes and produce a 300+ MB binary.
 | GET    | `/export`           | Export all meals and menus as JSON                  |
 | POST   | `/import`           | Import meals and menus from JSON body               |
 | GET,POST| `/import-file`      | Import from `?path=<file>`, a multipart upload, or legacy `backup.json` (§5.4) |
+| GET,POST| `/settings`         | Get/persist Ollama settings (`use_ollama`, §16)     |
 | POST   | `/shutdown`         | Trigger clean process exit (browser-close beacon, §5.20b)                 |
 
 ## Data Model
@@ -271,6 +277,8 @@ menus generated after the edit, including the grocery list built from the latest
 > §13.23 (saved groceries tabs), §13.24 (scrollable history), §16 (deferred Ollama features documented).
 >
 > **Latest fixes through 2026-08-11:** §13.21b (configurable page-size selector 5/10/15/20, default 5, persisted to localStorage), §5.20b (delayed `/shutdown` with 10-second grace period so brief navigations like clicking a `mailto:` link don't kill the server; `mailto:` links changed to `window.open` instead of navigation), §13.3c (`+ Add Snack` / `+ Add Staple` header badges with modal; backend `/saving` accepts optional `group` override).
+>
+> **Latest fixes through 2026-08-14:** §16 (Ollama local LLM integration, opt-in — all traffic stays on `http://localhost:11434`): `USE_OLLAMA`/`OLLAMA_MODEL`/`OLLAMA_URL`/`OLLAMA_TIMEOUT` config (env-overridable, persisted via `GET/POST /settings` to `instance/settings.json`); `services/llm_service.py` (`call_ollama()` with graceful `None` fallback); §16.2 `GET /grocery/enhance` + `🧠 Enhance` button (side-by-side AI comparison); §16.3 `/insights` gains `ai_suggestions` + `🧠 AI Insights` section; §16.4 `GET /menu/suggest` + `💡 Suggest Meal` header button → `SuggestMealModal.jsx` with per-suggestion "Save to Meals"; two-row sticky header (title + toggles / wrapped action buttons); scrollable grocery list (`.grocery-scroll`); 8 new backend tests (29/29 pass). To use: `ollama run llama3.1:8b` (or `gemma2`), then toggle `🧠 AI On` in the header.
 >
 > **Remaining:**
 > - (see `audit.md` §6–§11 for the low-priority polish / dead-code / perf / tooling backlog)

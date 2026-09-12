@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - §5.18 — Meal search: `?search=` parameter on `/meals` + search bar in the frontend.
 - §13a — UI refresh: dark/light mode toggle, shared CSS classes, responsive Quick Pick buttons, tabbed Past Menus view, "Email this menu" link.
 - §13.18 — Local nutrition insights: `GET /insights` + `Insights.jsx` (presence-based macro analysis, flags, swap suggestions).
+- §16 — Ollama local LLM integration (opt-in; all traffic stays on `http://localhost:11434`): `USE_OLLAMA`/`OLLAMA_MODEL`/`OLLAMA_URL`/`OLLAMA_TIMEOUT` config (env-overridable, persisted via `GET/POST /settings` to `instance/settings.json`); `services/llm_service.py` (`call_ollama()` returns `None` on any failure so callers fall back to rule-based output).
+- §16.2 — AI-enhanced grocery list: `GET /grocery/enhance` reorders categories into store-layout order and suggests missing items; `🧠 Enhance` button shows the AI list side-by-side for comparison.
+- §16.3 — AI-enhanced nutrition insights: `/insights` now includes `ai_suggestions` (meal-specific guidance) when Ollama is enabled; rendered in a dedicated `🧠 AI Insights` section.
+- §16.4 — AI meal suggestions: `GET /menu/suggest` generates up to 3 ideas with ingredients + recipe; `💡 Suggest Meal` header button opens `SuggestMealModal.jsx` with per-suggestion "Save to Meals" (saved with `AI Suggested` category).
+- Two-row sticky header: title + AI/theme toggles (row 1), wrapped action buttons (row 2) — buttons never overflow on narrow screens.
+- Scrollable grocery list (`.grocery-scroll`, 480px max height) so long lists don't push the page down.
 
 ### Changed
 - §4.1 — Backend modularization: `~950`-line `app.py` split into thin `app.py` + `routes/` (4 blueprints) + `services/` (3 modules) + `models.py` + `config.py` + `utils.py` + `cli.py` + `limiter.py`.
