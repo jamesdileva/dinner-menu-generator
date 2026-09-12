@@ -38,7 +38,6 @@ export default function App() {
   const [mealsPage, setMealsPage] = useState(1);
   const [mealsPages, setMealsPages] = useState(1);
   const [mealsTotal, setMealsTotal] = useState(0);
-  const [mealCategory, setMealCategory] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -53,13 +52,8 @@ export default function App() {
   const [editingMeal, setEditingMeal] = useState(null);
   const [editName, setEditName] = useState("");
   const [editIngredients, setEditIngredients] = useState("");
-  const [editCategory, setEditCategory] = useState("");
   const [undo, setUndo] = useState(null);
   const undoTimer = useRef(null);
-
-  // §5.14 categories
-  const [categories, setCategories] = useState([]);
-  const [category, setCategory] = useState("");
 
   // §13.21 header badges
   const [addMealModalOpen, setAddMealModalOpen] = useState(false);
@@ -140,6 +134,7 @@ export default function App() {
   });
 
   // §13a.2 — load the current week's menu if one exists; fall back to generating a new one.
+  // Used for the initial app load only (resume behavior).
   const loadMenu = () => withLoading(async () => {
     const last = await apiFetch("/menu/last");
     if (last.menu) {
@@ -148,6 +143,17 @@ export default function App() {
       setMenu(await apiFetch("/menu/week"));
     }
     setGrocery(null);
+  });
+
+  // Generate Week button: confirm before replacing the current week's menu,
+  // then force-generate a fresh week (unlike loadMenu, never resumes).
+  const generateNewWeek = () => withLoading(async () => {
+    if (menu && !window.confirm("Replace the current week's menu with a fresh one?")) {
+      return;
+    }
+    setMenu(await apiFetch("/menu/week"));
+    setGrocery(null);
+    setEnhancedGrocery(null);
   });
 
   const loadGrocery = () => withLoading(async () => {
@@ -231,12 +237,11 @@ export default function App() {
         body: JSON.stringify({
           name: suggestion.name,
           ingredients: suggestion.ingredients,
-          category: "AI Suggested",
         }),
       });
       setSuggestMealModalOpen(false);
       setAiSuggestions(null);
-      loadMeals(1, mealCategory, search);
+      loadMeals(1, search);
     });
 
   const rerollDay = async (day) => {
@@ -266,14 +271,13 @@ export default function App() {
     }
   };
 
-  const loadMeals = (page = 1, categoryFilter = null, searchQuery = null) =>
+  // Bug 1 fix: accept an explicit perPage so callers with a fresh value
+  // (e.g. the page-size dropdown) don't read stale state from the closure.
+  const loadMeals = (page = 1, searchQuery = null, perPage = null) =>
     withLoading(async () => {
-      let url = `/meals?page=${page}&limit=${mealsPerPage}`;
-      if (categoryFilter !== null) setMealCategory(categoryFilter);
+      const limit = perPage ?? mealsPerPage;
+      let url = `/meals?page=${page}&limit=${limit}`;
       if (searchQuery !== null) setSearch(searchQuery);
-      if (categoryFilter !== null && categoryFilter !== "") {
-        url += `&category=${encodeURIComponent(categoryFilter)}`;
-      }
       if (searchQuery !== null && searchQuery !== "") {
         url += `&search=${encodeURIComponent(searchQuery)}`;
       }
@@ -288,14 +292,20 @@ export default function App() {
     const val = parseInt(e.target.value, 10);
     setMealsPerPage(val);
     localStorage.setItem("mealsPerPage", val);
-    loadMeals(1, mealCategory, search);
+    loadMeals(1, search, val);
   };
 
-  const loadCategories = () => {
-    apiFetch("/meals/categories")
-      .then((res) => setCategories(res.categories))
-      .catch(() => {});
-  };
+  useEffect(() => {
+    loadMeals();
+    // §13a.2 — resume last week's menu if present, then load the grocery list
+    loadMenu();
+    loadGrocery();
+    // §16 — fetch Ollama settings
+    loadSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const onSearch = (e) => loadMeals(1, e.target.value);
 
   const editMeal = (meal) => {
     setEditingMeal(meal);
@@ -303,14 +313,12 @@ export default function App() {
     setEditIngredients(
       Array.isArray(meal.ingredients) ? meal.ingredients.join(", ") : ""
     );
-    setEditCategory(meal.category || "");
   };
 
   const cancelEdit = () => {
     setEditingMeal(null);
     setEditName("");
     setEditIngredients("");
-    setEditCategory("");
   };
 
   const saveEdit = (meal) =>
@@ -324,11 +332,10 @@ export default function App() {
             .split(",")
             .map((i) => i.trim())
             .filter(Boolean),
-          category: editCategory || undefined,
         }),
       });
       cancelEdit();
-      loadMeals(mealsPage, mealCategory, search);
+      loadMeals(mealsPage, search);
     });
 
   const uploadImage = (e) => {
@@ -344,7 +351,7 @@ export default function App() {
       alert(
         `Added: ${data.added.length}\nUpdated: ${data.updated.length}\nSkipped: ${data.skipped.length}`
       );
-      loadMeals(1, mealCategory, search);
+      loadMeals(1, search);
       if (addMealModalOpen) setAddMealModalOpen(false);
     });
   };
@@ -362,10 +369,10 @@ export default function App() {
             ingredients: meal.ingredients,
           }),
         })
-          .then(() => loadMeals(mealsPage, mealCategory, search))
+          .then(() => loadMeals(mealsPage, search))
           .catch(() => {})
       );
-      loadMeals(mealsPage, mealCategory, search);
+      loadMeals(mealsPage, search);
     });
 
   const addMeal = () =>
@@ -379,14 +386,12 @@ export default function App() {
             .split(",")
             .map((i) => i.trim())
             .filter(Boolean),
-          category: category || undefined,
         }),
       });
       setName("");
       setIngredients("");
-      setCategory("");
       setAddMealModalOpen(false);
-      loadMeals(1, mealCategory, search);
+      loadMeals(1, search);
     });
 
   // §13.3b — add a snack or staple to the saved-grocery catalog
@@ -426,7 +431,6 @@ export default function App() {
 
   useEffect(() => {
     loadMeals();
-    loadCategories();
     // §13a.2 — resume last week's menu if present, then load the grocery list
     loadMenu();
     loadGrocery();
@@ -434,9 +438,6 @@ export default function App() {
     loadSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const onCategoryFilter = (e) => loadMeals(1, e.target.value, search);
-  const onSearch = (e) => loadMeals(1, mealCategory, e.target.value);
 
   return (
     <div className="app-shell">
@@ -552,20 +553,16 @@ export default function App() {
         mealsTotal={mealsTotal}
         mealsPerPage={mealsPerPage}
         onPerPageChange={onPerPageChange}
-        categories={categories}
         editingMeal={editingMeal}
         editName={editName}
         editIngredients={editIngredients}
-        editCategory={editCategory}
         onEditNameChange={(e) => setEditName(e.target.value)}
         onEditIngredientsChange={(e) => setEditIngredients(e.target.value)}
-        onEditCategoryChange={(e) => setEditCategory(e.target.value)}
         onEditMeal={editMeal}
         onCancelEdit={cancelEdit}
         onSaveEdit={saveEdit}
         onDeleteMeal={deleteMeal}
         onPageChange={loadMeals}
-        onCategoryFilter={onCategoryFilter}
         onSearch={onSearch}
         savings={savings}
         onAddFromSavings={addFromSavings}
@@ -574,7 +571,7 @@ export default function App() {
 
       {/* Weekly Menu + Grocery List (side-by-side on desktop, stacked on mobile) */}
       <div className="main-grid">
-        <Menu menu={menu} onGenerate={loadMenu} onReroll={rerollDay} />
+        <Menu menu={menu} onGenerate={generateNewWeek} onReroll={rerollDay} />
         <GroceryList
           grocery={grocery}
           onGenerate={loadGrocery}
@@ -662,12 +659,6 @@ export default function App() {
           onKeyDown={(e) => e.key === "Enter" && addMeal()}
           autoFocus
         />
-        <select className="input-field" value={category || ""} onChange={(e) => setCategory(e.target.value)}>
-          <option value="">(no category)</option>
-          {categories.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
         <input
           className="input-field"
           placeholder="Ingredients (comma separated)"

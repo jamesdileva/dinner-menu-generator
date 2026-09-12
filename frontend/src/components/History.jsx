@@ -42,9 +42,6 @@ export default function History({ history }) {
                   <strong>{day}:</strong>{" "}
                   {meal?.name ?? "—"}
                 </span>
-                {meal?.category ? (
-                  <span className="category-chip">{meal.category}</span>
-                ) : null}
               </li>
             ))}
           </ul>

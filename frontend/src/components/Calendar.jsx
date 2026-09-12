@@ -81,19 +81,6 @@ export default function Calendar({ menus }) {
                           style={{ fontWeight: 600, cursor: "pointer" }}
                           onClick={() => toggle(cellId)}
                         >
-                          {meal?.category ? (
-                            <span
-                              style={{
-                                display: "inline-block",
-                                width: "8px",
-                                height: "8px",
-                                borderRadius: "50%",
-                                background: "var(--accent)",
-                                marginRight: "6px",
-                                verticalAlign: "middle",
-                              }}
-                            />
-                          ) : null}
                           {name}
                           {meal?.ingredients?.length ? (
                             <span style={{ opacity: 0.5, marginLeft: "4px" }}>

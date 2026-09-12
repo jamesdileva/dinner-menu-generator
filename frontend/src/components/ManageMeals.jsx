@@ -8,10 +8,10 @@ import { useState } from "react";
 
 export default function ManageMeals({
   meals, mealsPage, mealsPages, mealsTotal, mealsPerPage, onPerPageChange,
-  categories, editingMeal, editName, editIngredients, editCategory,
+  editingMeal, editName, editIngredients,
   onEditMeal, onCancelEdit, onSaveEdit, onDeleteMeal,
-  onPageChange, onCategoryFilter, onSearch,
-  onEditNameChange, onEditIngredientsChange, onEditCategoryChange,
+  onPageChange, onSearch,
+  onEditNameChange, onEditIngredientsChange,
   savings, onAddFromSavings, onDeleteSaving,
 }) {
   const [activeTab, setActiveTab] = useState("meals");
@@ -49,16 +49,6 @@ export default function ManageMeals({
 
       {activeTab === "meals" && (
         <>
-          <div className="row-gap" style={{ marginBottom: "10px" }}>
-            <span>Category:</span>
-            <select className="input-field-sm" value={""} onChange={onCategoryFilter}>
-              <option value="">All</option>
-              {categories.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-
           <input
             className="input-field"
             placeholder="Search meals…"
@@ -84,12 +74,6 @@ export default function ManageMeals({
                       onKeyDown={(e) => e.key === "Enter" && onSaveEdit(meal)}
                       placeholder="Ingredients (comma separated)"
                     />
-                    <select className="input-field" style={{ marginBottom: "8px" }} value={editCategory || ""} onChange={onEditCategoryChange}>
-                      <option value="">(no category)</option>
-                      {categories.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
                     <div className="row-gap" style={{ gap: "8px" }}>
                       <button className="btn-sm" onClick={() => onSaveEdit(meal)}>Save</button>
                       <button className="btn-sm" onClick={onCancelEdit}>Cancel</button>
@@ -99,7 +83,6 @@ export default function ManageMeals({
                   <>
                     <span>
                       {meal.name}
-                      {meal.category ? <span className="category-chip">{meal.category}</span> : null}
                     </span>
                     <div>
                       <button className="btn-sm" onClick={() => onEditMeal(meal)}>Edit</button>
