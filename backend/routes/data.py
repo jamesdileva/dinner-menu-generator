@@ -50,7 +50,7 @@ def _check_ollama_available() -> bool:
         url = current_app.config.get("OLLAMA_URL", "http://localhost:11434/api/generate")
         # Ollama has a /api/tags endpoint that's a lightweight health probe
         base = url.replace("/api/generate", "/api/tags")
-        resp = httpx.GET(base, timeout=httpx.Timeout(3))
+        resp = httpx.get(base, timeout=httpx.Timeout(3))
         return resp.status_code == 200
     except Exception:
         return False

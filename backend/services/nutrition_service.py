@@ -175,7 +175,7 @@ def enhanced_insights() -> Union[Dict[str, Any], Tuple[Dict[str, str], int]]:
         f"Return each suggestion as a single line of text, no markdown headers, no numbering."
     )
 
-    ollama_text = call_ollama(prompt, timeout=current_app.config.get("OLLAMA_TIMEOUT", 15))
+    ollama_text = call_ollama(prompt, timeout=current_app.config.get("OLLAMA_TIMEOUT", 60))
     if ollama_text is None:
         base["ai_suggestions"] = None
         return base

@@ -425,18 +425,87 @@ def test_insights_ai_suggestions_null_when_disabled(client, app):
     assert data["ai_suggestions"] is None
 
 
-def test_ollama_service_returns_none_offline(client, app):
-    # §16 — call_ollama() returns None when Ollama daemon is not running.
-    app.config["USE_OLLAMA"] = True
-    from services.llm_service import call_ollama
+def test_call_ollama_success_parses_response(client, app, monkeypatch):
+    # §16 regression — must call lowercase httpx.post (the old httpx.POST typo
+    # raised AttributeError and every AI feature silently returned None).
+    import httpx as _httpx
+    from services import llm_service
+
+    monkeypatch.setitem(app.config, "USE_OLLAMA", True)
+
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"response": "  HELLO  "}
+
+    monkeypatch.setattr(_httpx, "post", lambda *a, **k: FakeResp())
     with app.app_context():
-        result = call_ollama("hello", timeout=2)
-    assert result is None  # daemon not running in test env → None → graceful fallback
+        assert llm_service.call_ollama("hi") == "HELLO"
 
 
-def test_ollama_service_returns_none_when_disabled(client, app):
+def test_call_ollama_non_200_returns_none(client, app, monkeypatch):
+    # §16 — non-200 from the daemon → None → callers fall back to rule-based.
+    import httpx as _httpx
+    from services import llm_service
+
+    monkeypatch.setitem(app.config, "USE_OLLAMA", True)
+
+    class FakeResp:
+        status_code = 500
+
+        def json(self):
+            return {}
+
+    monkeypatch.setattr(_httpx, "post", lambda *a, **k: FakeResp())
+    with app.app_context():
+        assert llm_service.call_ollama("hi") is None
+
+
+def test_call_ollama_connect_error_returns_none(client, app, monkeypatch):
+    # §16 — daemon unreachable → None → graceful fallback (no exception leaks).
+    import httpx as _httpx
+    from services import llm_service
+
+    monkeypatch.setitem(app.config, "USE_OLLAMA", True)
+
+    def boom(*a, **k):
+        raise _httpx.ConnectError("daemon not running")
+
+    monkeypatch.setattr(_httpx, "post", boom)
+    with app.app_context():
+        assert llm_service.call_ollama("hi") is None
+
+
+def test_check_ollama_available(client, app, monkeypatch):
+    # §16 — availability probe must use lowercase httpx.get and report truthfully.
+    import httpx as _httpx
+    from routes.data import _check_ollama_available
+
+    class FakeResp:
+        status_code = 200
+
+    monkeypatch.setattr(_httpx, "get", lambda *a, **k: FakeResp())
+    with app.app_context():
+        assert _check_ollama_available() is True
+
+    def boom(*a, **k):
+        raise _httpx.ConnectError("daemon not running")
+
+    monkeypatch.setattr(_httpx, "get", boom)
+    with app.app_context():
+        assert _check_ollama_available() is False
+
+
+def test_ollama_timeout_default_is_60(client, app):
+    # §16 — cold model load can take ~30-60s; default timeout is 60 so the
+    # first AI click after reboot doesn't fail and force a double-click.
+    assert app.config["OLLAMA_TIMEOUT"] == 60
+
+
+def test_ollama_service_returns_none_when_disabled(client, app, monkeypatch):
     # §16 — call_ollama() returns None immediately when USE_OLLAMA is False.
-    app.config["USE_OLLAMA"] = False
+    monkeypatch.setitem(app.config, "USE_OLLAMA", False)
     from services.llm_service import call_ollama
     with app.app_context():
         result = call_ollama("hello", timeout=2)

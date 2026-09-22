@@ -54,7 +54,7 @@ def _url() -> str:
 def _timeout() -> int:
     try:
         from flask import current_app
-        return int(current_app.config.get("OLLAMA_TIMEOUT", 15))
+        return int(current_app.config.get("OLLAMA_TIMEOUT", 60))
     except (RuntimeError, ValueError, TypeError):
         return 15
 
@@ -76,7 +76,7 @@ def call_ollama(prompt: str, timeout: Optional[int] = None) -> Optional[str]:
     t = timeout if timeout is not None else _timeout()
 
     try:
-        resp = httpx.POST(
+        resp = httpx.post(
             _url(),
             json={"model": _model(), "prompt": prompt, "stream": False},
             timeout=httpx.Timeout(t),

@@ -29,4 +29,6 @@ class Config:
     USE_OLLAMA: bool = os.environ.get("OLLAMA_ENABLED", "false").lower() in ("1", "true", "yes")
     OLLAMA_MODEL: str = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
     OLLAMA_URL: str = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
-    OLLAMA_TIMEOUT: int = int(os.environ.get("OLLAMA_TIMEOUT", "15"))
+    # 60s: first call after a cold boot must wait for the model to load into RAM
+    # (~30-60s); subsequent warm calls take ~6s (llama3.1:8b).
+    OLLAMA_TIMEOUT: int = int(os.environ.get("OLLAMA_TIMEOUT", "60"))

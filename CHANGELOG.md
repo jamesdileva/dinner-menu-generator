@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `openai` and `psycopg2-binary` unused dependencies from `requirements.txt`.
 - Dead `App.css` (never imported), dead `current_week` global, duplicate `import random`/`used_today` declarations.
 
+### Fixed
+- §16 — All three AI features (grocery enhance, nutrition insights, meal suggest) silently did nothing: `llm_service.call_ollama()` and `_check_ollama_available()` called `httpx.POST`/`httpx.GET` (nonexistent — httpx only has lowercase `post`/`get`), so every call raised `AttributeError`, was caught, and fell back to `None`/`False`. Now uses `httpx.post`/`httpx.get`; regression tests cover the success path, non-200, connection error, and availability probe.
+- §16 — `OLLAMA_TIMEOUT` default raised 15s → 60s so the first AI call after a cold boot (model load into RAM) doesn't time out and force a double-click.
+- Test isolation — `USE_OLLAMA` is now forced `False` per-test via `monkeypatch.setitem` in the `app` fixture (tests that need it on opt in explicitly and are auto-restored); previously one test's flag assignment leaked into later tests and could trigger real Ollama calls mid-suite.
+
 ---
 
 ## [1.0.0] — 2026-07-24

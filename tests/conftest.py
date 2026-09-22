@@ -30,11 +30,14 @@ def _raise():  # pragma: no cover - only used by tests
 
 
 @pytest.fixture()
-def app():
+def app(monkeypatch):
     """A Flask app backed by a fresh temp DB schema for each test."""
     flask_app.config["TESTING"] = True
     # Keep TESTING's exception propagation OFF so our custom 500 handler is exercised.
     flask_app.config["PROPAGATE_EXCEPTIONS"] = False
+    # §16 isolation: every test starts with Ollama off regardless of settings.json
+    # or earlier tests; monkeypatch restores the session value after each test.
+    monkeypatch.setitem(flask_app.config, "USE_OLLAMA", False)
     limiter.reset()  # clear rate-limit counters so each test starts from zero
 
     with flask_app.app_context():

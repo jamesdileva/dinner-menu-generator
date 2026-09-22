@@ -254,7 +254,7 @@ def suggest_meals(preferences: str = "") -> List[Dict[str, Any]]:
         f"Do not add commentary or markdown."
     )
 
-    ollama_text = call_ollama(prompt, timeout=current_app.config.get("OLLAMA_TIMEOUT", 15))
+    ollama_text = call_ollama(prompt, timeout=current_app.config.get("OLLAMA_TIMEOUT", 60))
     if ollama_text is None:
         return []
 

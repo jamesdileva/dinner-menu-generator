@@ -280,7 +280,7 @@ def enhance_grocery_list() -> Union[Dict[str, Any], Tuple[Dict[str, str], int]]:
         f"Keep the item names as-is (no quantities needed). Do not add commentary."
     )
 
-    ollama_text = call_ollama(prompt, timeout=current_app.config.get("OLLAMA_TIMEOUT", 15))
+    ollama_text = call_ollama(prompt, timeout=current_app.config.get("OLLAMA_TIMEOUT", 60))
 
     if ollama_text is None:
         return _reorder_categories(result)
