@@ -412,6 +412,30 @@ def test_menu_suggest_off_returns_empty(client):
     assert r.get_json() == {"suggestions": []}
 
 
+def test_suggest_meals_prompt_builds_and_parses(client, app, monkeypatch):
+    # §16.4 regression — the prompt's JSON example braces must not be f-string
+    # format specifiers (unescaped braces raised ValueError before the Ollama
+    # call, so /menu/suggest always returned []).
+    import json as _json
+    monkeypatch.setitem(app.config, "USE_OLLAMA", True)
+    for i in range(3):
+        _add(client, f"Meal {i}", ["rice"])
+
+    from services import menu_service
+
+    canned = _json.dumps(
+        [{"name": "AI Taco Night", "ingredients": ["tortilla", "beef"],
+          "recipe": "Cook beef, serve in tortillas."}]
+    )
+    monkeypatch.setattr(menu_service, "call_ollama", lambda prompt, timeout=None: canned)
+
+    with app.app_context():
+        out = menu_service.suggest_meals()
+    assert len(out) == 1
+    assert out[0]["name"] == "AI Taco Night"
+    assert out[0]["ingredients"] == ["tortilla", "beef"]
+
+
 def test_insights_ai_suggestions_null_when_disabled(client, app):
     # §16.3 — when Ollama disabled, /insights returns ai_suggestions=null.
     for i in range(7):

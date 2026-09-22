@@ -250,7 +250,7 @@ def suggest_meals(preferences: str = "") -> List[Dict[str, Any]]:
         f"{'User preferences: ' + preferences if preferences else ''}\n\n"
         f"Each suggestion should include a name, a list of ingredients, and a brief "
         f"1-2 sentence cooking instruction. Return ONLY valid JSON:\n"
-        f'[{"name": "Meal A", "ingredients": ["ing1", "ing2"], "recipe": "Cook ing1 with ing2."}, ...]\n'
+        '[{"name": "Meal A", "ingredients": ["ing1", "ing2"], "recipe": "Cook ing1 with ing2."}, ...]\n'
         f"Do not add commentary or markdown."
     )
 
